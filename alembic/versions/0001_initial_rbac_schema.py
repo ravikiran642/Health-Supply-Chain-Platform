@@ -38,8 +38,8 @@ def upgrade() -> None:
     op.create_index(op.f('ix_districts_code'), 'districts', ['code'], unique=True)
 
     # 3. Facilities table
-    facility_type_enum = postgresql.ENUM('PHC', 'CHC', name='facility_type_enum')
-    facility_type_enum.create(op.get_bind(), checkfirst=True)
+    # facility_type_enum = postgresql.ENUM('PHC', 'CHC', name='facility_type_enum')
+    # facility_type_enum.create(op.get_bind(), checkfirst=True)
 
     op.create_table(
         'facilities',
@@ -78,8 +78,8 @@ def upgrade() -> None:
     )
 
     # 7. Users table
-    scope_level_enum = postgresql.ENUM('platform', 'national', 'state', 'district', 'phc', name='scope_level_enum')
-    scope_level_enum.create(op.get_bind(), checkfirst=True)
+    # scope_level_enum = postgresql.ENUM('platform', 'national', 'state', 'district', 'phc', name='scope_level_enum')
+    # scope_level_enum.create(op.get_bind(), checkfirst=True)
 
     op.create_table(
         'users',
@@ -119,8 +119,8 @@ def upgrade() -> None:
     op.create_index(op.f('ix_refresh_tokens_revoked'), 'refresh_tokens', ['revoked'], unique=False)
 
     # 10. Audit logs table
-    audit_result_enum = postgresql.ENUM('success', 'denied', name='audit_result_enum')
-    audit_result_enum.create(op.get_bind(), checkfirst=True)
+    # audit_result_enum = postgresql.ENUM('success', 'denied', name='audit_result_enum')
+    # audit_result_enum.create(op.get_bind(), checkfirst=True)
 
     op.create_table(
         'audit_logs',

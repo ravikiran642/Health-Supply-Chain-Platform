@@ -33,7 +33,11 @@ class AuditLog(Base):
     resource_id = Column(String(100), nullable=True)
     ip_address = Column(String(45), nullable=False)
     result = Column(
-        Enum(AuditResultEnum, name="audit_result_enum"),
+        Enum(
+            AuditResultEnum,
+            name="audit_result_enum",
+            values_callable=lambda enum_cls: [e.value for e in enum_cls],
+        ),
         nullable=False,
         index=True
     )

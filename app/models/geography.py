@@ -38,7 +38,15 @@ class Facility(Base):
     id = Column(GUID(), primary_key=True, default=uuid.uuid4)
     district_id = Column(GUID(), ForeignKey("districts.id", ondelete="CASCADE"), nullable=False, index=True)
     name = Column(String(150), nullable=False)
-    type = Column(Enum(FacilityTypeEnum, name="facility_type_enum"), nullable=False, default=FacilityTypeEnum.PHC)
+    type = Column(
+        Enum(
+            FacilityTypeEnum,
+            name="facility_type_enum",
+            values_callable=lambda enum_cls: [e.value for e in enum_cls],
+        ),
+        nullable=False,
+        default=FacilityTypeEnum.PHC
+    )
     code = Column(String(30), unique=True, nullable=False, index=True)
 
     district = relationship("District", back_populates="facilities")

@@ -24,7 +24,11 @@ class User(Base):
     full_name = Column(String(150), nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
     scope_level = Column(
-        Enum(ScopeLevelEnum, name="scope_level_enum"),
+        Enum(
+            ScopeLevelEnum,
+            name="scope_level_enum",
+            values_callable=lambda enum_cls: [e.value for e in enum_cls],
+        ),
         nullable=False,
         default=ScopeLevelEnum.PHC,
         index=True
