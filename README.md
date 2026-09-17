@@ -2,7 +2,7 @@
 
 Multi-tenant health supply chain backend for India built with **Python 3.11+**, **FastAPI**, **SQLAlchemy 2.x**, **Pydantic v2**, **PostgreSQL 16**, **Redis 7**, and **Alembic**.
 
-Provides multi-tenant geographic isolation (National, State, District, PHC), strict Role-Based Access Control (RBAC), revocable JWT access & refresh tokens, and tamper-evident audit logging.
+Provides multi-tenants geographic isolation (National, State, District, PHC), strict Role-Based Access Control (RBAC), revocable JWT access & refresh tokens, and tamper-evident audit logging.
 
 ---
 
