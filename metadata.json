@@ -1,0 +1,6 @@
+{
+  "name": "Health Supply Chain Platform - RBAC & Auth",
+  "description": "Multi-tenant health supply chain backend for India with role-based access control, geographic scoping, JWT authentication, and audit logging.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
