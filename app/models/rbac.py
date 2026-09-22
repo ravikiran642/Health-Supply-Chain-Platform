@@ -44,20 +44,20 @@ user_roles = Table(
 )
 
 
-class Role(Base):
+class Role(Base):   # it is a role table in db with columns id, name, description, permissions, and users
     __tablename__ = "roles"
 
     id = Column(GUID(), primary_key=True, default=uuid.uuid4)
     name = Column(String(50), unique=True, nullable=False, index=True)
     description = Column(String(255), nullable=True)
 
-    permissions = relationship(
+    permissions = relationship( # relationship function is used to define the many-to-many relationship between roles and permissions
         "Permission",
         secondary=role_permissions,
         back_populates="roles",
         lazy="joined"
     )
-    users = relationship(
+    users = relationship( # Argument of relationship funciton 1st is the related class name "User", secondary is the junction table user_roles, back_populates is the attribute in User class that refers to roles
         "User",
         secondary=user_roles,
         back_populates="roles"
