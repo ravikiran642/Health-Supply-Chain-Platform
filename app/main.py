@@ -23,7 +23,6 @@ app.add_middleware(
 )
 
 # Mount Auth router under both /auth and /api/v1/auth for specification consistency
-app.include_router(auth_router, prefix="")
 app.include_router(auth_router, prefix=settings.API_V1_STR)
 
 
