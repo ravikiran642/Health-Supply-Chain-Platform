@@ -1,3 +1,6 @@
+"""ORM model for the `audit_logs` table: append-only record of security and
+operational events (logins, permission denials, data access) without PII.
+"""
 import uuid
 import enum
 from datetime import datetime, timezone

@@ -1,3 +1,6 @@
+"""Pydantic schemas for creating and reading audit log entries, used by
+AuditService/AuditRepository and any admin-facing audit endpoints.
+"""
 from uuid import UUID
 from datetime import datetime
 from typing import Optional, Dict, Any

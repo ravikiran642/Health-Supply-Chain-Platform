@@ -1,3 +1,7 @@
+"""Typed application settings loaded from environment variables / .env file
+(project metadata, Postgres, Redis, JWT and rate-limit config). Import the
+module-level `settings` singleton anywhere config values are needed.
+"""
 from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field

@@ -1,3 +1,7 @@
+"""Application entry point: creates the FastAPI app, wires in middleware and
+versioned routers, and exposes the /health liveness endpoint.
+Run via `uvicorn app.main:app`.
+"""
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
@@ -22,7 +26,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount Auth router under both /auth and /api/v1/auth for specification consistency
+# Mount Auth router under /api/v1/auth for specification consistency
 app.include_router(auth_router, prefix=settings.API_V1_STR)
 
 
@@ -37,7 +41,11 @@ def health_check():
 
 
 def custom_openapi():
-    """Configure OpenAPI docs with standard JWT Bearer authorization scheme."""
+    """Custom OpenAPI schema generator.
+
+    This function overrides the default OpenAPI schema generation to include
+    a standard JWT Bearer authorization scheme for protected endpoints.
+    """
     if app.openapi_schema:
         return app.openapi_schema
 

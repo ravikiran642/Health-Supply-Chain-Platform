@@ -1,3 +1,6 @@
+"""Re-exports all Pydantic schemas (request/response DTOs) for a single
+import path, mirroring the app/models/__init__.py aggregation pattern.
+"""
 from app.schemas.auth import (
     LoginRequest,
     LoginResponse,

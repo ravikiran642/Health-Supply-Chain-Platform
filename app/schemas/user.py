@@ -1,3 +1,6 @@
+"""Pydantic schemas for user create/read payloads, decoupling the API shape
+of `User` from its ORM model in app/models/user.py.
+"""
 from uuid import UUID
 from datetime import datetime
 from typing import Optional, List

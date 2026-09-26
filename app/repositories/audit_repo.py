@@ -1,3 +1,6 @@
+"""Data-access layer for `AuditLog`: writes and queries audit rows only,
+with no sanitization or business logic (that lives in AuditService).
+"""
 from typing import Optional, Sequence
 from uuid import UUID
 from sqlalchemy import select, desc

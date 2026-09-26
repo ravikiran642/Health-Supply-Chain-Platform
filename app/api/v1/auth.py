@@ -1,3 +1,7 @@
+"""Auth controller (route layer): defines the /auth/* HTTP endpoints (login,
+refresh, logout, me) plus RBAC/tenancy test routes. Delegates all business
+logic to AuthService and only handles request/response shaping here.
+"""
 from uuid import UUID
 from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy.orm import Session

@@ -1,3 +1,7 @@
+"""Pydantic request/response schemas for the /auth/* endpoints (login,
+refresh, logout). Defines the API's external contract, separate from the
+ORM models in app/models.
+"""
 from pydantic import BaseModel, EmailStr, Field
 from app.schemas.user import UserResponse, UserProfileResponse
 

@@ -1,3 +1,6 @@
+"""ORM models for RBAC tables: `roles`, `permissions`, and their many-to-many
+junction tables (`role_permissions`, `user_roles`).
+"""
 import uuid
 from sqlalchemy import Column, String, ForeignKey, Table
 from sqlalchemy.orm import relationship
@@ -44,7 +47,7 @@ user_roles = Table(
 )
 
 
-class Role(Base):   # it is a role table in db with columns id, name, description, permissions, and users
+class Role(Base):
     __tablename__ = "roles"
 
     id = Column(GUID(), primary_key=True, default=uuid.uuid4)

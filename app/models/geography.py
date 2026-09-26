@@ -1,3 +1,6 @@
+"""ORM models for the geographic hierarchy (`states` -> `districts` ->
+`facilities`) that user scope_id values reference for tenancy checks.
+"""
 import uuid
 import enum
 from sqlalchemy import Column, String, ForeignKey, Enum
