@@ -1,3 +1,6 @@
+"""Pydantic read schemas for `Role` and `Permission`, used to serialize RBAC
+data in API responses.
+"""
 from uuid import UUID
 from typing import Optional
 from pydantic import BaseModel, ConfigDict

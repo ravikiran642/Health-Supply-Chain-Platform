@@ -1,3 +1,6 @@
+"""Aggregates all SQLAlchemy ORM models so `Base.metadata` is fully populated
+for Alembic autogeneration and a single import path is available elsewhere.
+"""
 from app.core.database import Base
 from app.models.geography import State, District, Facility, FacilityTypeEnum
 from app.models.rbac import Role, Permission, role_permissions, user_roles

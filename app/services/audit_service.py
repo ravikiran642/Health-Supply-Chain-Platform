@@ -1,3 +1,7 @@
+"""Business logic for audit logging: sanitizes event metadata to strip PII
+before delegating persistence to AuditRepository. Called from services and
+api/deps whenever a security-relevant event occurs.
+"""
 from uuid import UUID
 from typing import Optional, Dict, Any
 from sqlalchemy.orm import Session

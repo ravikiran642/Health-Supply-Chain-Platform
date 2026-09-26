@@ -1,3 +1,7 @@
+"""Shared FastAPI dependencies (the "middleware" of each route): authenticate the
+current user from a JWT, and gate access with permission/scope/tenancy checks
+used via `Depends(...)` in route controllers.
+"""
 from typing import Callable, Optional
 from uuid import UUID
 from fastapi import Depends, HTTPException, Request, status

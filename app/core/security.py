@@ -1,3 +1,7 @@
+"""Cryptographic primitives: password hashing (bcrypt), JWT access-token
+encode/decode, and opaque refresh-token generation/hashing. Pure functions
+with no DB or FastAPI dependency, used by services and api/deps.
+"""
 import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone

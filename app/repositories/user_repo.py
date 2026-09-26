@@ -1,3 +1,7 @@
+"""Data-access layer for `User` and `RefreshToken`: raw CRUD/query operations
+(no business rules or HTTP concerns), including geographic scope filtering
+reused across services and route dependencies.
+"""
 from uuid import UUID
 from datetime import datetime, timezone
 from typing import Optional, Sequence

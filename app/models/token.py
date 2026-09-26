@@ -1,3 +1,6 @@
+"""ORM model for the `refresh_tokens` table: stores SHA-256 hashes (never raw
+tokens) so refresh tokens can be validated and individually revoked.
+"""
 import uuid
 from datetime import datetime, timezone
 from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey

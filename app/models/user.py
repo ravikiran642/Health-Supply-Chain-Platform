@@ -1,3 +1,6 @@
+"""ORM model for the `users` table: identity, credentials, and the
+geographic scope (scope_level/scope_id) used for multi-tenant filtering.
+"""
 import uuid
 import enum
 from datetime import datetime, timezone

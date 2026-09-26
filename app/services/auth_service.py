@@ -1,3 +1,7 @@
+"""Business logic for authentication: verifies credentials, issues/refreshes/
+revokes JWT + refresh token pairs, and records audit events. Called by the
+auth route controller; talks to the DB only through UserRepository.
+"""
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple
 from uuid import UUID

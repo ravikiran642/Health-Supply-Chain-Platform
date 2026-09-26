@@ -11,50 +11,148 @@ from app.models.user import User, ScopeLevelEnum
 # Exact Permission Matrix Definition
 ROLE_PERMISSIONS_MATRIX = {
     "PHC Operator": [
+        # Medicines Inventory (CRUD, but delete = write-off)
+        "view_inventory",
         "create_inventory",
-        "view_own_phc",
+        "update_inventory",
+        "dispense_medicine",
+        "write_off_stock",           # instead of delete
+        "report_expiry",
+
+        # Stock requests
         "request_stock",
-        "update_beds",
+        "report_stock_out",
+
+        # Beds (CRUD, but delete = deactivate)
+        "view_beds",
+        "update_bed_occupancy",      # renamed from update_beds
+        "add_bed",                   # for ward additions
+        "deactivate_bed",            # for maintenance/removal
+
+        # Staff Attendance (CRUD, but delete = correct)
+        "view_attendance",
         "mark_attendance",
-        "report_stock_out"
+        "correct_attendance",        # instead of delete
+
+        # Patient (CRUD, but delete = deactivate)
+        "create_patient",
+        "view_patient_limited",      # basic info only
+        "update_patient",            # demographics
+        "view_patient_history",
+        "deactivate_patient",
+
+        # Alerts
+        "view_alerts",
+        "acknowledge_alert",
+
+        # Forecast
+        "view_phc_forecast",
     ],
     "PHC Approver": [
-        # All PHC Operator permissions
+        # all PHC Operator permissions
+        "view_inventory",
         "create_inventory",
-        "view_own_phc",
+        "update_inventory",
+        "dispense_medicine",
+        "write_off_stock",           # instead of delete
+        "report_expiry",
+
+        # Stock requests
         "request_stock",
-        "update_beds",
-        "mark_attendance",
         "report_stock_out",
-        # Approver specific permissions
+
+        # Beds (CRUD, but delete = deactivate)
+        "view_beds",
+        "update_bed_occupancy",      # renamed from update_beds
+        "add_bed",                   # for ward additions
+        "deactivate_bed",            # for maintenance/removal
+
+        # Staff Attendance (CRUD, but delete = correct)
+        "view_attendance",
+        "mark_attendance",
+        "correct_attendance",        # instead of delete
+
+        # Patient (CRUD, but delete = deactivate)
+        "create_patient",
+        "view_patient_limited",      # basic info only
+        "update_patient",            # demographics
+        "view_patient_history",
+        "deactivate_patient",
+
+        # Alerts
+        "view_alerts",
+        "acknowledge_alert",
+
+        # Forecast
+        "view_phc_forecast",
+        # approver-specific
+        "update_patient_clinical",       # MO-specific
         "approve_phc_request",
-        "approve_redistribution_to_phc"
+        "approve_redistribution_to_phc",
+        "request_redistribution",
+        "cancel_redistribution",
+        "dismiss_alert",
+        "configure_alert_thresholds",
+        "view_staff",                    # see full staff directory
+        "correct_attendance",            # already in operator, keep
+        "view_reports",
     ],
     "District Approver": [
         "view_district",
+        "view_district_forecast",
+        "view_redistribution",
         "approve_intra_district_transfer",
+        "request_redistribution",
+        "cancel_redistribution",
         "escalate_to_state",
-        "view_district_forecast"
+        "view_alerts",
+        "acknowledge_alert",
+        "view_reports",
+        "export_data",
+        "view_scope_audit_logs",
     ],
     "State Approver": [
         "view_state",
+        "view_state_forecast",
+        "view_district",              # can drill down to districts
+        "view_redistribution",
         "approve_inter_district_transfer",
         "escalate_to_national",
-        "view_state_forecast",
-        "view_fl_model_status"
+        "view_alerts",
+        "acknowledge_alert",
+        "view_fl_model_status",
+        "view_fl_metrics",
+        "view_reports",
+        "export_data",
+        "view_scope_audit_logs",
     ],
     "National Viewer": [
         "view_national",
+        "view_national_forecast",
+        "view_state",                 # can drill down to states
+        "view_district",              # can drill down further
         "approve_inter_state_transfer",
-        "view_national_forecast"
+        "view_alerts",
+        "view_fl_model_status",
+        "view_fl_metrics",
+        "view_reports",
+        "export_data",
+        "view_scope_audit_logs",
     ],
     "Super Admin": [
         "manage_users",
-        "manage_fl",
-        "view_all",
         "manage_permissions",
+        "manage_fl",
+        "start_fl_round",
+        "view_model_registry",
+        "deploy_model",
+        "rollback_model",
+        "view_fl_metrics",
+        "view_all",
         "view_audit_logs",
-        "view_system_health"
+        "view_system_health",
+        "view_reports",
+        "export_data",
     ]
 }
 

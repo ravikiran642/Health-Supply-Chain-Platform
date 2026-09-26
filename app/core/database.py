@@ -1,3 +1,7 @@
+"""Database connectivity: builds the SQLAlchemy engine/session factory from
+settings, declares the `Base` used by all ORM models, portable GUID/JSON
+column types, and the `get_db` FastAPI dependency for a request-scoped session.
+"""
 import uuid
 from typing import Generator
 from sqlalchemy import create_engine
