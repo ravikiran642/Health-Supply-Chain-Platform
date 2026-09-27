@@ -131,6 +131,17 @@ def seeded_db(db: Session) -> Session:
         roles=[role_objects["Super Admin"]]
     )
 
+    # State Approver - Jharkhand
+    state_approver = User(
+        email="state.approver.jh@hsc.gov.in",
+        password_hash=pwd_hash,
+        full_name="Jharkhand State Approver",
+        is_active=True,
+        scope_level=ScopeLevelEnum.STATE,
+        scope_id=state_jh.id,
+        roles=[role_objects["State Approver"]]
+    )
+
     # District Approver - Ramgarh
     ramgarh_user = User(
         email="district.approver.ram@hsc.gov.in",
@@ -187,7 +198,7 @@ def seeded_db(db: Session) -> Session:
     )
 
     db.add_all([
-        super_admin, ramgarh_user, ranchi_user,
+        super_admin, ramgarh_user, ranchi_user, state_approver,
         phc_operator, phc_approver, phc_operator_kan,
     ])
     db.flush()
