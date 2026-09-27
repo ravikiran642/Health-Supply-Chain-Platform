@@ -371,8 +371,8 @@ def test_history_endpoint_with_filters(client: TestClient, seeded_db: Session):
     assert response.status_code == 200
     data = response.json()
     assert "items" in data
-    assert "total" in data
-    assert data["total"] >= 10  # 5 days x 2 staff
+    assert "pagination" in data
+    assert data["pagination"]["total_items"] >= 10  # 5 days x 2 staff
 
 
 # 15. Summary endpoint returns correct counts

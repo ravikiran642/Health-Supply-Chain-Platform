@@ -5,6 +5,7 @@ from typing import Optional, List, Any
 import enum
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app.models.inventory import BatchStatusEnum, TransactionTypeEnum
+from app.schemas.common import PaginationMeta
 
 
 class WriteOffReasonEnum(str, enum.Enum):
@@ -84,10 +85,7 @@ class StockTransactionResponse(BaseModel):
 
 class StockTransactionListResponse(BaseModel):
     items: List[StockTransactionResponse]
-    total: int
-    page: int
-    page_size: int
-    total_pages: int
+    pagination: PaginationMeta
 
 
 class DispenseResponse(BaseModel):

@@ -357,8 +357,8 @@ def test_transaction_ledger(client: TestClient, db: Session):
     assert response.status_code == 200
     data = response.json()
     assert "items" in data
-    assert "total" in data
-    assert data["total"] >= 1
+    assert "pagination" in data
+    assert data["pagination"]["total_items"] >= 1
     assert any(tx["batch_number"] == "PAT-BCG-LEDGER" for tx in data["items"])
 
 

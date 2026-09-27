@@ -29,8 +29,9 @@ def test_super_admin_list_users(client: TestClient):
     assert response.status_code == 200
     data = response.json()
     assert "items" in data
-    assert "total" in data
-    assert data["total"] >= 5
+    assert "pagination" in data
+    assert data["pagination"]["total_items"] >= 5
+    assert data["pagination"]["page"] == 1
     assert len(data["items"]) >= 5
 
     # Filter by scope_level=district
