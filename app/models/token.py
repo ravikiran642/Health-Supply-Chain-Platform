@@ -33,4 +33,9 @@ class RefreshToken(Base):
     def is_valid(self) -> bool:
         """Token is valid if not revoked and not expired."""
         now = datetime.now(timezone.utc)
-        return not self.revoked and self.expires_at > now
+        expires = self.expires_at
+        # SQLite drops tz info; treat naive as UTC to match Postgres behavior
+        if expires is not None and expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+        return not self.revoked and expires > now
+

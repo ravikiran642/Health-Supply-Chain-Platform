@@ -12,11 +12,14 @@ from fastapi.testclient import TestClient
 from app.models.audit import AuditLog, AuditActionEnum, AuditResultEnum
 from app.models.geography import Facility
 from app.models.bed import BedInventory, BedOccupancyLog, BedTypeEnum
+from app.core.config import settings
+
+API_PREFIX = settings.API_V1_STR
 
 
 def get_auth_header(client: TestClient, email: str, password: str = "Test@123") -> dict:
     response = client.post(
-        "/auth/login",
+        f"{API_PREFIX}/auth/login",
         json={"email": email, "password": password}
     )
     assert response.status_code == 200, f"Login failed: {response.text}"
@@ -30,7 +33,7 @@ def test_list_beds_own_facility(client: TestClient, seeded_db: Session):
     patratu = seeded_db.query(Facility).filter_by(code="PAT_PHC").first()
     assert patratu is not None
 
-    response = client.get(f"/beds/facility/{patratu.id}", headers=op_headers)
+    response = client.get(f"{API_PREFIX}/beds/facility/{patratu.id}", headers=op_headers)
     assert response.status_code == 200
     data = response.json()
     assert len(data) >= 3
@@ -50,7 +53,7 @@ def test_list_beds_other_facility_forbidden(client: TestClient, seeded_db: Sessi
     kanke = seeded_db.query(Facility).filter_by(code="KAN_PHC").first()
     assert kanke is not None
 
-    response = client.get(f"/beds/facility/{kanke.id}", headers=op_headers)
+    response = client.get(f"{API_PREFIX}/beds/facility/{kanke.id}", headers=op_headers)
     assert response.status_code == 403
     assert "Forbidden: facility outside your scope" in response.json()["detail"]
 
@@ -73,7 +76,7 @@ def test_add_bed_type(client: TestClient, seeded_db: Session):
         "bed_type": "icu",
         "total_beds": 5,
     }
-    response = client.post(f"/beds/facility/{patratu.id}", json=payload, headers=op_headers)
+    response = client.post(f"{API_PREFIX}/beds/facility/{patratu.id}", json=payload, headers=op_headers)
     assert response.status_code == 201
     data = response.json()
     assert data["bed_type"] == "icu"
@@ -105,7 +108,7 @@ def test_add_duplicate_bed_type_conflict(client: TestClient, seeded_db: Session)
         "bed_type": "general",
         "total_beds": 10,
     }
-    response = client.post(f"/beds/facility/{patratu.id}", json=payload, headers=op_headers)
+    response = client.post(f"{API_PREFIX}/beds/facility/{patratu.id}", json=payload, headers=op_headers)
     assert response.status_code == 409
     assert "already exists" in response.json()["detail"]
 
@@ -119,7 +122,7 @@ def test_update_occupancy_within_total(client: TestClient, seeded_db: Session):
     payload = {
         "occupied_beds": 14,
     }
-    response = client.patch(f"/beds/facility/{patratu.id}/general", json=payload, headers=op_headers)
+    response = client.patch(f"{API_PREFIX}/beds/facility/{patratu.id}/general", json=payload, headers=op_headers)
     assert response.status_code == 200
     data = response.json()
     assert data["occupied_beds"] == 14
@@ -148,7 +151,7 @@ def test_update_occupancy_exceeding_total(client: TestClient, seeded_db: Session
     payload = {
         "occupied_beds": 15,
     }
-    response = client.patch(f"/beds/facility/{patratu.id}/oxygen", json=payload, headers=op_headers)
+    response = client.patch(f"{API_PREFIX}/beds/facility/{patratu.id}/oxygen", json=payload, headers=op_headers)
     assert response.status_code in (400, 422)
     assert "cannot exceed total" in response.text.lower()
 
@@ -162,7 +165,7 @@ def test_update_total_below_occupied(client: TestClient, seeded_db: Session):
     payload = {
         "total_beds": 2,
     }
-    response = client.patch(f"/beds/facility/{patratu.id}/oxygen", json=payload, headers=op_headers)
+    response = client.patch(f"{API_PREFIX}/beds/facility/{patratu.id}/oxygen", json=payload, headers=op_headers)
     assert response.status_code in (400, 422)
     assert "cannot be less than occupied" in response.text.lower() or "cannot exceed total" in response.text.lower()
 
@@ -173,7 +176,7 @@ def test_deactivate_with_occupied_forbidden(client: TestClient, seeded_db: Sessi
     patratu = seeded_db.query(Facility).filter_by(code="PAT_PHC").first()
 
     # Maternity has occupied_beds=2 > 0
-    response = client.post(f"/beds/facility/{patratu.id}/maternity/deactivate", headers=op_headers)
+    response = client.post(f"{API_PREFIX}/beds/facility/{patratu.id}/maternity/deactivate", headers=op_headers)
     assert response.status_code == 400
     assert "Discharge patients first" in response.json()["detail"]
 
@@ -184,9 +187,9 @@ def test_deactivate_with_occupied_zero(client: TestClient, seeded_db: Session):
     patratu = seeded_db.query(Facility).filter_by(code="PAT_PHC").first()
 
     # Discharge all patients first in maternity ward
-    client.patch(f"/beds/facility/{patratu.id}/maternity", json={"occupied_beds": 0}, headers=op_headers)
+    client.patch(f"{API_PREFIX}/beds/facility/{patratu.id}/maternity", json={"occupied_beds": 0}, headers=op_headers)
 
-    response = client.post(f"/beds/facility/{patratu.id}/maternity/deactivate", headers=op_headers)
+    response = client.post(f"{API_PREFIX}/beds/facility/{patratu.id}/maternity/deactivate", headers=op_headers)
     assert response.status_code == 200
     data = response.json()
     assert data["is_active"] is False
@@ -202,7 +205,7 @@ def test_reactivate_bed_type(client: TestClient, seeded_db: Session):
     patratu = seeded_db.query(Facility).filter_by(code="PAT_PHC").first()
 
     # Maternity was deactivated in previous test; reactivate it
-    response = client.post(f"/beds/facility/{patratu.id}/maternity/activate", headers=op_headers)
+    response = client.post(f"{API_PREFIX}/beds/facility/{patratu.id}/maternity/activate", headers=op_headers)
     assert response.status_code == 200
     data = response.json()
     assert data["is_active"] is True
@@ -218,9 +221,9 @@ def test_bed_history_endpoint(client: TestClient, seeded_db: Session):
     patratu = seeded_db.query(Facility).filter_by(code="PAT_PHC").first()
 
     # Update oxygen occupancy to guarantee at least one history row
-    client.patch(f"/beds/facility/{patratu.id}/oxygen", json={"occupied_beds": 5}, headers=op_headers)
+    client.patch(f"{API_PREFIX}/beds/facility/{patratu.id}/oxygen", json={"occupied_beds": 5}, headers=op_headers)
 
-    response = client.get(f"/beds/facility/{patratu.id}/history", headers=op_headers)
+    response = client.get(f"{API_PREFIX}/beds/facility/{patratu.id}/history", headers=op_headers)
     assert response.status_code == 200
     data = response.json()
     assert "items" in data
@@ -234,14 +237,40 @@ def test_district_approver_views_district_beds(client: TestClient, seeded_db: Se
     dist_headers = get_auth_header(client, "district.approver.ram@hsc.gov.in")
     patratu = seeded_db.query(Facility).filter_by(code="PAT_PHC").first()  # In Ramgarh district
 
-    response = client.get(f"/beds/facility/{patratu.id}", headers=dist_headers)
+    response = client.get(f"{API_PREFIX}/beds/facility/{patratu.id}", headers=dist_headers)
     assert response.status_code == 200
     data = response.json()
     assert len(data) >= 1
 
     # Also test summary endpoint
-    summary_resp = client.get(f"/beds/facility/{patratu.id}/summary", headers=dist_headers)
+    summary_resp = client.get(f"{API_PREFIX}/beds/facility/{patratu.id}/summary", headers=dist_headers)
     assert summary_resp.status_code == 200
     summary_data = summary_resp.json()
     assert summary_data["facility_id"] == str(patratu.id)
     assert summary_data["total_beds"] > 0
+
+def test_inline_permission_denial_audited(client: TestClient, seeded_db: Session):
+    # District Approver has view_beds but NOT update_bed_occupancy
+    dist_headers = get_auth_header(client, "district.approver.ram@hsc.gov.in")
+    patratu = seeded_db.query(Facility).filter_by(code="PAT_PHC").first()
+    assert patratu is not None
+
+    response = client.patch(
+        f"{API_PREFIX}/beds/facility/{patratu.id}/general",
+        json={"occupied_beds": 15},
+        headers=dist_headers,
+    )
+    assert response.status_code == 403
+
+    audit = (
+        seeded_db.query(AuditLog)
+        .filter_by(
+            action=AuditActionEnum.PERMISSION_DENIED.value,
+            result=AuditResultEnum.DENIED,
+        )
+        .order_by(AuditLog.timestamp.desc())
+        .first()
+    )
+    assert audit is not None
+    assert audit.resource_type == "bed_inventory"
+    assert audit.metadata_.get("required_permission") == "update_bed_occupancy"

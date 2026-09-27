@@ -50,6 +50,10 @@ def health_check():
         "environment": settings.ENVIRONMENT
     }
 
+@app.get(f"{settings.API_V1_STR}/health", tags=["System"], include_in_schema=False)
+def health_check_v1():
+    return health_check()
+
 
 def custom_openapi():
     """Custom OpenAPI schema generator.

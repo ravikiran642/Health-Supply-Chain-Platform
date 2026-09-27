@@ -62,3 +62,4 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_table('bed_occupancy_logs')
     op.drop_table('bed_inventories')
+    op.execute('DROP TYPE IF EXISTS bed_type_enum')
