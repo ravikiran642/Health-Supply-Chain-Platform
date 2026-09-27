@@ -15,6 +15,7 @@ from app.api.deps import (
 )
 from app.models.user import User
 from app.models.bed import BedTypeEnum
+from app.models.audit import AuditActionEnum, AuditResultEnum
 from app.schemas.bed import (
     BedCreate,
     BedUpdate,
@@ -23,6 +24,7 @@ from app.schemas.bed import (
     BedHistoryListResponse,
 )
 from app.services.bed_service import BedService
+from app.services.audit_service import AuditService
 
 router = APIRouter(prefix="/beds", tags=["Beds & Occupancy"])
 
@@ -104,19 +106,51 @@ def update_bed(
     - If total_beds is provided: requires 'add_bed' permission.
     - If occupied_beds is provided: requires 'update_bed_occupancy' permission.
     """
+    ip_addr = get_client_ip(request)
     user_perms = set(current_user.permissions)
+
     if payload.total_beds is not None and "add_bed" not in user_perms:
+        AuditService.log_event(
+            db=db,
+            action=AuditActionEnum.PERMISSION_DENIED,
+            ip_address=ip_addr,
+            result=AuditResultEnum.DENIED,
+            user_id=current_user.id,
+            resource_type="bed_inventory",
+            resource_id=f"{facility_id}:{bed_type.value}",
+            metadata={
+                "required_permission": "add_bed",
+                "violation": "inline_permission_check",
+                "attempted_field": "total_beds",
+            },
+        )
+        db.commit()
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Permission denied: 'add_bed' required to update total_beds",
         )
+
     if payload.occupied_beds is not None and "update_bed_occupancy" not in user_perms:
+        AuditService.log_event(
+            db=db,
+            action=AuditActionEnum.PERMISSION_DENIED,
+            ip_address=ip_addr,
+            result=AuditResultEnum.DENIED,
+            user_id=current_user.id,
+            resource_type="bed_inventory",
+            resource_id=f"{facility_id}:{bed_type.value}",
+            metadata={
+                "required_permission": "update_bed_occupancy",
+                "violation": "inline_permission_check",
+                "attempted_field": "occupied_beds",
+            },
+        )
+        db.commit()
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Permission denied: 'update_bed_occupancy' required to update occupied_beds",
         )
 
-    ip_addr = get_client_ip(request)
     return BedService.update_bed(
         db=db,
         facility_id=facility_id,
