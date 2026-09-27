@@ -18,6 +18,7 @@ from app.schemas.attendance import (
     AttendanceHistoryListResponse,
     AttendanceSummaryResponse,
 )
+from app.schemas.common import PaginationMeta
 from app.repositories.attendance_repo import AttendanceRepository
 from app.services.audit_service import AuditService
 
@@ -296,10 +297,12 @@ class AttendanceService:
 
         return AttendanceHistoryListResponse(
             items=res_items,
-            total=total,
-            page=page,
-            page_size=page_size,
-            total_pages=total_pages,
+            pagination=PaginationMeta(
+                page=page,
+                page_size=page_size,
+                total_items=total,
+                total_pages=total_pages,
+            ),
         )
 
     @classmethod

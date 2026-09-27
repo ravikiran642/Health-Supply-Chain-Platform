@@ -30,6 +30,7 @@ from app.schemas.user import (
     UserListResponse,
 )
 from app.schemas.rbac import RoleResponse
+from app.schemas.common import PaginationMeta
 
 
 def generate_temp_password(length: int = 12) -> str:
@@ -170,10 +171,12 @@ class UserService:
         total_pages = math.ceil(total / page_size) if total > 0 else 0
         return UserListResponse(
             items=[cls.to_user_response(u) for u in users],
-            total=total,
-            page=page,
-            page_size=page_size,
-            total_pages=total_pages,
+            pagination=PaginationMeta(
+                page=page,
+                page_size=page_size,
+                total_items=total,
+                total_pages=total_pages,
+            ),
         )
 
     @classmethod

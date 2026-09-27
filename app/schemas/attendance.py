@@ -4,6 +4,7 @@ from datetime import date, datetime
 from typing import Optional, List
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.models.attendance import AttendanceStatusEnum
+from app.schemas.common import PaginationMeta
 
 
 class AttendanceMarkEntry(BaseModel):
@@ -87,10 +88,7 @@ class RosterItemResponse(BaseModel):
 
 class AttendanceHistoryListResponse(BaseModel):
     items: List[AttendanceResponse]
-    total: int
-    page: int
-    page_size: int
-    total_pages: int
+    pagination: PaginationMeta
 
 
 class AttendanceSummaryResponse(BaseModel):

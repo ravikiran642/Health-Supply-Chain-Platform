@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Optional, List
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.models.bed import BedTypeEnum
+from app.schemas.common import PaginationMeta
 
 
 class BedCreate(BaseModel):
@@ -61,7 +62,4 @@ class BedOccupancyLogResponse(BaseModel):
 
 class BedHistoryListResponse(BaseModel):
     items: List[BedOccupancyLogResponse]
-    total: int
-    page: int
-    page_size: int
-    total_pages: int
+    pagination: PaginationMeta

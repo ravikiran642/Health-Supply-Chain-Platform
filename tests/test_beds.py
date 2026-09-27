@@ -227,8 +227,8 @@ def test_bed_history_endpoint(client: TestClient, seeded_db: Session):
     assert response.status_code == 200
     data = response.json()
     assert "items" in data
-    assert "total" in data
-    assert data["total"] >= 1
+    assert "pagination" in data
+    assert data["pagination"]["total_items"] >= 1
     assert any(log["bed_type"] == "oxygen" for log in data["items"])
 
 

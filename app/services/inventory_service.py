@@ -26,6 +26,7 @@ from app.schemas.inventory import (
     StockTransactionListResponse,
     DispenseResponse,
 )
+from app.schemas.common import PaginationMeta
 from app.repositories.drug_repo import DrugRepository
 from app.repositories.inventory_repo import InventoryRepository
 from app.services.audit_service import AuditService
@@ -417,8 +418,10 @@ class InventoryService:
         total_pages = math.ceil(total / page_size) if total > 0 else 1
         return StockTransactionListResponse(
             items=res_items,
-            total=total,
-            page=page,
-            page_size=page_size,
-            total_pages=total_pages,
+            pagination=PaginationMeta(
+                page=page,
+                page_size=page_size,
+                total_items=total,
+                total_pages=total_pages,
+            ),
         )

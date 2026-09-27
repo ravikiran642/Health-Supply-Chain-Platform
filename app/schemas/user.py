@@ -7,6 +7,7 @@ from typing import Optional, List
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from app.models.user import ScopeLevelEnum
 from app.schemas.rbac import RoleResponse
+from app.schemas.common import PaginationMeta
 
 
 def validate_password_complexity(v: str) -> str:
@@ -107,7 +108,4 @@ class UserProfileResponse(BaseModel):
 
 class UserListResponse(BaseModel):
     items: List[UserResponse]
-    total: int
-    page: int
-    page_size: int
-    total_pages: int
+    pagination: PaginationMeta

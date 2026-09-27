@@ -17,6 +17,7 @@ from app.schemas.bed import (
     BedOccupancyLogResponse,
     BedHistoryListResponse,
 )
+from app.schemas.common import PaginationMeta
 from app.repositories.bed_repo import BedRepository
 from app.services.audit_service import AuditService
 
@@ -333,8 +334,10 @@ class BedService:
 
         return BedHistoryListResponse(
             items=res_items,
-            total=total,
-            page=page,
-            page_size=page_size,
-            total_pages=total_pages,
+            pagination=PaginationMeta(
+                page=page,
+                page_size=page_size,
+                total_items=total,
+                total_pages=total_pages,
+            ),
         )
