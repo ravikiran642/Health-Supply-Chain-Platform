@@ -330,7 +330,7 @@ class BedService:
         )
 
         res_items = [BedOccupancyLogResponse.model_validate(log) for log in items]
-        total_pages = math.ceil(total / page_size) if total > 0 else 1
+        total_pages = math.ceil(total / page_size) if total > 0 else 0
 
         return BedHistoryListResponse(
             items=res_items,

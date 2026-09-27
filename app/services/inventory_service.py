@@ -415,7 +415,7 @@ class InventoryService:
             tx_res.batch_number = tx.batch.batch_number if tx.batch else None
             res_items.append(tx_res)
 
-        total_pages = math.ceil(total / page_size) if total > 0 else 1
+        total_pages = math.ceil(total / page_size) if total > 0 else 0
         return StockTransactionListResponse(
             items=res_items,
             pagination=PaginationMeta(
