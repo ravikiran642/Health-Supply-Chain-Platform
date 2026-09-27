@@ -24,8 +24,14 @@ from app.schemas.auth import (
     LogoutRequest,
     LogoutResponse,
 )
-from app.schemas.user import UserResponse, UserProfileResponse
+from app.schemas.user import (
+    UserResponse,
+    UserProfileResponse,
+    UserProfileUpdate,
+    ChangePasswordRequest,
+)
 from app.services.auth_service import AuthService
+from app.services.user_service import UserService
 
 router = APIRouter(prefix="/auth", tags=["Authentication & RBAC"])
 
@@ -147,12 +153,80 @@ def get_me(
         id=current_user.id,
         email=current_user.email,
         full_name=current_user.full_name,
+        phone=current_user.phone,
         is_active=current_user.is_active,
         scope_level=current_user.scope_level,
         scope_id=current_user.scope_id,
+        must_change_password=getattr(current_user, "must_change_password", False),
         roles=[r.name for r in current_user.roles],
         permissions=list(current_user.permissions)
     )
+
+
+@router.patch(
+    "/me",
+    response_model=UserProfileResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Update authenticated user's profile"
+)
+def update_me(
+    payload: UserProfileUpdate,
+    request: Request,
+    current_user: User = Depends(require_permission("update_own_profile")),
+    db: Session = Depends(get_db),
+):
+    """
+    Update own profile attributes (full_name and phone only).
+    Email, roles, geographic scope, and is_active cannot be modified here.
+    Requires 'update_own_profile' permission.
+    """
+    ip_addr = get_client_ip(request)
+    updated_user = UserService.update_own_profile(
+        db=db,
+        current_user=current_user,
+        payload=payload,
+        ip_address=ip_addr,
+    )
+    return UserProfileResponse(
+        id=updated_user.id,
+        email=updated_user.email,
+        full_name=updated_user.full_name,
+        phone=updated_user.phone,
+        is_active=updated_user.is_active,
+        scope_level=updated_user.scope_level,
+        scope_id=updated_user.scope_id,
+        must_change_password=getattr(updated_user, "must_change_password", False),
+        roles=[r.name for r in updated_user.roles],
+        permissions=list(updated_user.permissions)
+    )
+
+
+@router.post(
+    "/me/change-password",
+    status_code=status.HTTP_200_OK,
+    summary="Change authenticated user's password"
+)
+def change_my_password(
+    payload: ChangePasswordRequest,
+    request: Request,
+    current_user: User = Depends(require_permission("change_own_password")),
+    db: Session = Depends(get_db),
+):
+    """
+    Change current user's password after validating current password and strength.
+    Requires 'change_own_password' permission.
+    """
+    ip_addr = get_client_ip(request)
+    UserService.change_own_password(
+        db=db,
+        current_user=current_user,
+        payload=payload,
+        ip_address=ip_addr,
+    )
+    return {
+        "success": True,
+        "message": "Password changed successfully"
+    }
 
 
 # Protected verification routes demonstrating RBAC & Multi-Tenant Geographic Isolation

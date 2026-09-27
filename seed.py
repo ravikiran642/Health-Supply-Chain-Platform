@@ -47,6 +47,11 @@ ROLE_PERMISSIONS_MATRIX = {
 
         # Forecast
         "view_phc_forecast",
+
+        # Self-Profile
+        "view_own_profile",
+        "update_own_profile",
+        "change_own_password",
     ],
     "PHC Approver": [
         # all PHC Operator permissions
@@ -85,6 +90,12 @@ ROLE_PERMISSIONS_MATRIX = {
 
         # Forecast
         "view_phc_forecast",
+
+        # Self-Profile
+        "view_own_profile",
+        "update_own_profile",
+        "change_own_password",
+
         # approver-specific
         "update_patient_clinical",       # MO-specific
         "approve_phc_request",
@@ -110,6 +121,9 @@ ROLE_PERMISSIONS_MATRIX = {
         "view_reports",
         "export_data",
         "view_scope_audit_logs",
+        "view_own_profile",
+        "update_own_profile",
+        "change_own_password",
     ],
     "State Approver": [
         "view_state",
@@ -125,6 +139,9 @@ ROLE_PERMISSIONS_MATRIX = {
         "view_reports",
         "export_data",
         "view_scope_audit_logs",
+        "view_own_profile",
+        "update_own_profile",
+        "change_own_password",
     ],
     "National Viewer": [
         "view_national",
@@ -138,6 +155,9 @@ ROLE_PERMISSIONS_MATRIX = {
         "view_reports",
         "export_data",
         "view_scope_audit_logs",
+        "view_own_profile",
+        "update_own_profile",
+        "change_own_password",
     ],
     "Super Admin": [
         "manage_users",
@@ -153,6 +173,15 @@ ROLE_PERMISSIONS_MATRIX = {
         "view_system_health",
         "view_reports",
         "export_data",
+        "view_users",
+        "create_user",
+        "update_user",
+        "deactivate_user",
+        "activate_user",
+        "reset_user_password",
+        "view_own_profile",
+        "update_own_profile",
+        "change_own_password",
     ]
 }
 

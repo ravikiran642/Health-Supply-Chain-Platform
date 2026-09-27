@@ -12,8 +12,13 @@ from app.schemas.auth import (
 from app.schemas.user import (
     UserBase,
     UserCreate,
+    UserUpdate,
+    UserProfileUpdate,
+    ChangePasswordRequest,
+    ResetPasswordResponse,
     UserResponse,
     UserProfileResponse,
+    UserListResponse,
 )
 from app.schemas.rbac import (
     RoleResponse,
