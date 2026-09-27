@@ -15,7 +15,7 @@ from app.models.audit import AuditActionEnum, AuditResultEnum
 from app.repositories.user_repo import UserRepository
 from app.services.audit_service import AuditService
 
-oauth2_scheme = HTTPBearer(auto_error=True)
+oauth2_scheme = HTTPBearer(auto_error=False)
 
 
 def get_client_ip(request: Request) -> str:
@@ -43,6 +43,9 @@ def get_current_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
 
+    if token_auth is None:
+        raise credentials_exception
+    
     token = token_auth.credentials
     try:
         payload = decode_token(token)

@@ -18,11 +18,14 @@ from app.models.inventory import (
     StockTransaction,
     TransactionTypeEnum,
 )
+from app.core.config import settings
+
+API_PREFIX = settings.API_V1_STR
 
 
 def get_auth_header(client: TestClient, email: str, password: str = "Test@123") -> dict:
     response = client.post(
-        "/auth/login",
+        f"{API_PREFIX}/auth/login",
         json={"email": email, "password": password}
     )
     assert response.status_code == 200, f"Login failed: {response.text}"
@@ -34,7 +37,7 @@ def get_auth_header(client: TestClient, email: str, password: str = "Test@123") 
 def test_list_drugs_authenticated(client: TestClient):
     user_headers = get_auth_header(client, "phc.operator.pat@hsc.gov.in")
 
-    response = client.get("/inventory/drugs", headers=user_headers)
+    response = client.get(f"{API_PREFIX}/inventory/drugs", headers=user_headers)
     assert response.status_code == 200
     data = response.json()
     assert len(data) >= 10
@@ -43,7 +46,7 @@ def test_list_drugs_authenticated(client: TestClient):
     assert "Amoxicillin 500mg" in names
 
     # Filter by category
-    resp_filtered = client.get("/inventory/drugs?category=antibiotic", headers=user_headers)
+    resp_filtered = client.get(f"{API_PREFIX}/inventory/drugs?category=antibiotic", headers=user_headers)
     assert resp_filtered.status_code == 200
     for d in resp_filtered.json():
         assert d["category"] == "antibiotic"
@@ -58,7 +61,7 @@ def test_super_admin_creates_drug(client: TestClient, db: Session):
         "category": "other",
         "unit": "tablet",
     }
-    response = client.post("/inventory/drugs", json=payload, headers=admin_headers)
+    response = client.post(f"{API_PREFIX}/inventory/drugs", json=payload, headers=admin_headers)
     assert response.status_code == 201
     data = response.json()
     assert data["name"] == "Metformin 500mg"
@@ -80,7 +83,7 @@ def test_phc_operator_create_drug_forbidden(client: TestClient):
         "category": "antibiotic",
         "unit": "tablet",
     }
-    response = client.post("/inventory/drugs", json=payload, headers=op_headers)
+    response = client.post(f"{API_PREFIX}/inventory/drugs", json=payload, headers=op_headers)
     assert response.status_code == 403
 
 
@@ -97,7 +100,7 @@ def test_receive_stock_own_facility(client: TestClient, db: Session):
         "quantity": 250,
         "expiry_date": future_exp,
     }
-    response = client.post(f"/inventory/facility/{patratu.id}/receive", json=payload, headers=op_headers)
+    response = client.post(f"{API_PREFIX}/inventory/facility/{patratu.id}/receive", json=payload, headers=op_headers)
     assert response.status_code == 201
     data = response.json()
     assert data["batch_number"] == "PAT-CIP-001"
@@ -130,7 +133,7 @@ def test_receive_stock_other_facility_forbidden(client: TestClient, db: Session)
         "quantity": 100,
         "expiry_date": (date.today() + timedelta(days=90)).isoformat(),
     }
-    response = client.post(f"/inventory/facility/{kanke.id}/receive", json=payload, headers=op_headers)
+    response = client.post(f"{API_PREFIX}/inventory/facility/{kanke.id}/receive", json=payload, headers=op_headers)
     assert response.status_code == 403
     assert "Forbidden: facility outside your scope" in response.json()["detail"]
 
@@ -144,8 +147,9 @@ def test_receive_stock_other_facility_forbidden(client: TestClient, db: Session)
     assert audit.result == AuditResultEnum.DENIED
 
 
-# 6. District Approver receives at any facility in their district → 201
-def test_district_approver_receives_in_district(client: TestClient, db: Session):
+# District Approver has view_inventory but NOT create_inventory — cannot receive
+def test_district_approver_cannot_receive_stock(client: TestClient, db: Session):
+    """District Approver has view_inventory but NOT create_inventory — cannot receive stock."""
     dist_headers = get_auth_header(client, "district.approver.ram@hsc.gov.in")
     patratu = db.query(Facility).filter_by(code="PAT_PHC").first()
     drug = db.query(Drug).filter_by(name="Zinc Sulfate 20mg").first()
@@ -156,24 +160,26 @@ def test_district_approver_receives_in_district(client: TestClient, db: Session)
         "quantity": 400,
         "expiry_date": (date.today() + timedelta(days=240)).isoformat(),
     }
-    response = client.post(f"/inventory/facility/{patratu.id}/receive", json=payload, headers=dist_headers)
-    assert response.status_code == 201
-    assert response.json()["quantity"] == 400
+    response = client.post(
+        f"{API_PREFIX}/inventory/facility/{patratu.id}/receive",
+        json=payload,
+        headers=dist_headers,
+    )
+    assert response.status_code == 403
+    assert "missing 'create_inventory'" in response.json()["detail"]
 
 
-# 7. District Approver tries different district → 403
-def test_district_approver_different_district_forbidden(client: TestClient, db: Session):
+
+# Ramgarh DHO cannot VIEW Ranchi district's facility inventory (scope enforcement via read permission)
+def test_district_approver_different_district_view_forbidden(client: TestClient, db: Session):
+    """Ramgarh DHO cannot VIEW Ranchi district's facility inventory."""
     ramgarh_headers = get_auth_header(client, "district.approver.ram@hsc.gov.in")
-    kanke = db.query(Facility).filter_by(code="KAN_PHC").first()  # In Ranchi district
-    drug = db.query(Drug).filter_by(name="Zinc Sulfate 20mg").first()
+    kanke = db.query(Facility).filter_by(code="KAN_PHC").first()  # Ranchi district
 
-    payload = {
-        "drug_id": str(drug.id),
-        "batch_number": "KAN-ZNC-CROSS",
-        "quantity": 100,
-        "expiry_date": (date.today() + timedelta(days=200)).isoformat(),
-    }
-    response = client.post(f"/inventory/facility/{kanke.id}/receive", json=payload, headers=ramgarh_headers)
+    response = client.get(
+        f"{API_PREFIX}/inventory/facility/{kanke.id}",
+        headers=ramgarh_headers,
+    )
     assert response.status_code == 403
     assert "Forbidden: facility outside your scope" in response.json()["detail"]
 
@@ -192,7 +198,7 @@ def test_dispense_fefo_earliest_expiry_first(client: TestClient, db: Session):
         "quantity": 400,
         "reason": "Outpatient department dispensing",
     }
-    response = client.post(f"/inventory/facility/{patratu.id}/dispense", json=payload, headers=op_headers)
+    response = client.post(f"{API_PREFIX}/inventory/facility/{patratu.id}/dispense", json=payload, headers=op_headers)
     assert response.status_code == 200
     data = response.json()
     assert data["total_dispensed"] == 400
@@ -226,7 +232,7 @@ def test_dispense_exceeding_stock_bad_request(client: TestClient, db: Session):
         "drug_id": str(pcm.id),
         "quantity": 50000,
     }
-    response = client.post(f"/inventory/facility/{patratu.id}/dispense", json=payload, headers=op_headers)
+    response = client.post(f"{API_PREFIX}/inventory/facility/{patratu.id}/dispense", json=payload, headers=op_headers)
     assert response.status_code == 400
     assert "Insufficient stock" in response.json()["detail"]
 
@@ -242,7 +248,7 @@ def test_batch_auto_depletes_at_zero(client: TestClient, db: Session):
         "drug_id": str(amx.id),
         "quantity": 200,
     }
-    response = client.post(f"/inventory/facility/{patratu.id}/dispense", json=payload, headers=op_headers)
+    response = client.post(f"{API_PREFIX}/inventory/facility/{patratu.id}/dispense", json=payload, headers=op_headers)
     assert response.status_code == 200
 
     b = db.query(InventoryBatch).filter_by(facility_id=patratu.id, batch_number="PAT-AMX-001").first()
@@ -262,7 +268,7 @@ def test_write_off_requires_reason(client: TestClient, db: Session):
         "quantity": 10,
         "reason_category": "damaged",
     }
-    resp_missing = client.post(f"/inventory/facility/{patratu.id}/write-off", json=payload_missing, headers=op_headers)
+    resp_missing = client.post(f"{API_PREFIX}/inventory/facility/{patratu.id}/write-off", json=payload_missing, headers=op_headers)
     assert resp_missing.status_code == 422
 
     # Reason shorter than 5 chars
@@ -272,7 +278,7 @@ def test_write_off_requires_reason(client: TestClient, db: Session):
         "reason_category": "damaged",
         "reason": "bad",
     }
-    resp_short = client.post(f"/inventory/facility/{patratu.id}/write-off", json=payload_short, headers=op_headers)
+    resp_short = client.post(f"{API_PREFIX}/inventory/facility/{patratu.id}/write-off", json=payload_short, headers=op_headers)
     assert resp_short.status_code == 422
 
     # Missing reason_category
@@ -281,7 +287,7 @@ def test_write_off_requires_reason(client: TestClient, db: Session):
         "quantity": 10,
         "reason": "Water damage occurred",
     }
-    resp_no_category = client.post(f"/inventory/facility/{patratu.id}/write-off", json=payload_no_category, headers=op_headers)
+    resp_no_category = client.post(f"{API_PREFIX}/inventory/facility/{patratu.id}/write-off", json=payload_no_category, headers=op_headers)
     assert resp_no_category.status_code == 422
 
 
@@ -298,7 +304,7 @@ def test_write_off_deducts_correctly(client: TestClient, db: Session):
         "reason_category": "damaged",
         "reason": "Water damage during roof leakage in store room",
     }
-    response = client.post(f"/inventory/facility/{patratu.id}/write-off", json=payload, headers=op_headers)
+    response = client.post(f"{API_PREFIX}/inventory/facility/{patratu.id}/write-off", json=payload, headers=op_headers)
     assert response.status_code == 200
     data = response.json()
     assert data["quantity"] == init_qty - 50
@@ -319,7 +325,7 @@ def test_expiring_batches_endpoint(client: TestClient, db: Session):
     patratu = db.query(Facility).filter_by(code="PAT_PHC").first()
 
     # Query batches expiring in 35 days (PAT-PCM-002 expires in 30 days; others expire in 90+ days)
-    response = client.get(f"/inventory/facility/{patratu.id}/expiring?days=35", headers=op_headers)
+    response = client.get(f"{API_PREFIX}/inventory/facility/{patratu.id}/expiring?days=35", headers=op_headers)
     assert response.status_code == 200
     data = response.json()
     batch_numbers = [b["batch_number"] for b in data]
@@ -345,9 +351,9 @@ def test_transaction_ledger(client: TestClient, db: Session):
         "quantity": 120,
         "expiry_date": (date.today() + timedelta(days=60)).isoformat(),
     }
-    client.post(f"/inventory/facility/{patratu.id}/receive", json=recv_payload, headers=op_headers)
+    client.post(f"{API_PREFIX}/inventory/facility/{patratu.id}/receive", json=recv_payload, headers=op_headers)
 
-    response = client.get(f"/inventory/facility/{patratu.id}/transactions", headers=op_headers)
+    response = client.get(f"{API_PREFIX}/inventory/facility/{patratu.id}/transactions", headers=op_headers)
     assert response.status_code == 200
     data = response.json()
     assert "items" in data

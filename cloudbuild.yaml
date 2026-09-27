@@ -1,4 +1,5 @@
 steps:
-  # Step 1: Build the container image exactly as before
   - name: 'gcr.io/cloud-builders/docker'
     args: ['build', '-t', 'asia-south1-docker.pkg.dev/$PROJECT_ID/backend-repo/api-service:latest', '-f', 'Dockerfile.api', '.']
+images:
+  - 'asia-south1-docker.pkg.dev/$PROJECT_ID/backend-repo/api-service:latest'
