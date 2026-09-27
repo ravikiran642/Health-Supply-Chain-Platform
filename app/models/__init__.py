@@ -19,6 +19,10 @@ from app.models.bed import (
     BedOccupancyLog,
     BedTypeEnum,
 )
+from app.models.attendance import (
+    StaffAttendance,
+    AttendanceStatusEnum,
+)
 
 __all__ = [
     "Base",
@@ -46,4 +50,6 @@ __all__ = [
     "BedInventory",
     "BedOccupancyLog",
     "BedTypeEnum",
+    "StaffAttendance",
+    "AttendanceStatusEnum",
 ]

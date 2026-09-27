@@ -19,6 +19,10 @@ from app.models.bed import (
     BedOccupancyLog,
     BedTypeEnum,
 )
+from app.models.attendance import (
+    StaffAttendance,
+    AttendanceStatusEnum,
+)
 
 
 # Exact Permission Matrix Definition
@@ -124,6 +128,7 @@ ROLE_PERMISSIONS_MATRIX = {
     "District Approver": [
         "view_beds",
         "view_inventory",
+        "view_attendance",
         "report_expiry",
         "view_district",
         "view_district_forecast",
@@ -144,6 +149,7 @@ ROLE_PERMISSIONS_MATRIX = {
     "State Approver": [
         "view_inventory",
         "view_beds",
+        "view_attendance",
         "report_expiry",
         "view_state",
         "view_state_forecast",
@@ -165,6 +171,7 @@ ROLE_PERMISSIONS_MATRIX = {
     "National Viewer": [
         "view_inventory",
         "view_beds",
+        "view_attendance",
         "report_expiry",
         "view_national",
         "view_national_forecast",
@@ -214,6 +221,9 @@ ROLE_PERMISSIONS_MATRIX = {
         "update_bed_occupancy",
         "add_bed",
         "deactivate_bed",
+        "view_attendance",
+        "mark_attendance",
+        "correct_attendance",
     ]
 }
 
@@ -221,6 +231,7 @@ ROLE_PERMISSIONS_MATRIX = {
 def reset_database(db):
     """Truncates all tables with cascade."""
     print("Resetting database...")
+    db.execute(text("TRUNCATE TABLE staff_attendance CASCADE;"))
     db.execute(text("TRUNCATE TABLE bed_occupancy_logs CASCADE;"))
     db.execute(text("TRUNCATE TABLE bed_inventories CASCADE;"))
     db.execute(text("TRUNCATE TABLE stock_transactions CASCADE;"))
@@ -538,8 +549,61 @@ def seed_database(reset: bool = False):
                 )
                 db.add(bed_obj)
 
+        # 8. Seed 5 Days of Staff Attendance for Patratu PHC (Operator + Approver)
+        print("Seeding 5 days of staff attendance for Patratu PHC...")
+        pat_op = db.query(User).filter_by(email="phc.operator.pat_phc@hsc.gov.in").first()
+        pat_appr = db.query(User).filter_by(email="phc.approver.pat_phc@hsc.gov.in").first()
+        superadmin = db.query(User).filter_by(email="superadmin@hsc.gov.in").first()
+
+        if patratu_fac and pat_op and pat_appr and superadmin:
+            today = date.today()
+            # 5 days: Day-4, Day-3, Day-2, Day-1, Today
+            # Day-4: both present
+            # Day-3: both present
+            # Day-2: operator present, approver on leave
+            # Day-1: both present
+            # Today: both present
+            attendance_schedule = [
+                (today - timedelta(days=4), AttendanceStatusEnum.PRESENT, AttendanceStatusEnum.PRESENT),
+                (today - timedelta(days=3), AttendanceStatusEnum.PRESENT, AttendanceStatusEnum.PRESENT),
+                (today - timedelta(days=2), AttendanceStatusEnum.PRESENT, AttendanceStatusEnum.LEAVE),
+                (today - timedelta(days=1), AttendanceStatusEnum.PRESENT, AttendanceStatusEnum.PRESENT),
+                (today, AttendanceStatusEnum.PRESENT, AttendanceStatusEnum.PRESENT),
+            ]
+
+            for att_date, op_status, appr_status in attendance_schedule:
+                # Operator
+                existing_op_att = db.query(StaffAttendance).filter_by(
+                    user_id=pat_op.id, attendance_date=att_date
+                ).first()
+                if not existing_op_att:
+                    db.add(
+                        StaffAttendance(
+                            facility_id=patratu_fac.id,
+                            user_id=pat_op.id,
+                            attendance_date=att_date,
+                            status=op_status,
+                            recorded_by=superadmin.id,
+                        )
+                    )
+
+                # Approver
+                existing_appr_att = db.query(StaffAttendance).filter_by(
+                    user_id=pat_appr.id, attendance_date=att_date
+                ).first()
+                if not existing_appr_att:
+                    db.add(
+                        StaffAttendance(
+                            facility_id=patratu_fac.id,
+                            user_id=pat_appr.id,
+                            attendance_date=att_date,
+                            status=appr_status,
+                            recorded_by=superadmin.id,
+                        )
+                    )
+
         db.commit()
-        print("Seeding successfully finished! All 24 users, geography, RBAC matrix, 10 drugs, sample batches, and bed inventories loaded.")
+        print("Seeding successfully finished! All 24 users, geography, RBAC matrix, 10 drugs, sample batches, bed inventories, and staff attendance loaded.")
     except Exception as e:
         db.rollback()
         print(f"Error during seeding: {e}")

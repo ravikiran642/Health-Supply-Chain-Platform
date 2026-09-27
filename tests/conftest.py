@@ -24,6 +24,10 @@ from app.models.bed import (
     BedOccupancyLog,
     BedTypeEnum,
 )
+from app.models.attendance import (
+    StaffAttendance,
+    AttendanceStatusEnum,
+)
 from seed import ROLE_PERMISSIONS_MATRIX
 
 # SQLite in-memory engine with static pool for testing
@@ -234,6 +238,40 @@ def seeded_db(db: Session) -> Session:
             is_active=True,
         )
         db.add(bed_obj)
+
+    # 8. Seed 5 Days of Staff Attendance for Patratu PHC (Operator + Approver)
+    # Day-4: both present
+    # Day-3: both present
+    # Day-2: operator present, approver on leave
+    # Day-1: both present
+    # Today: both present
+    attendance_schedule = [
+        (today - timedelta(days=4), AttendanceStatusEnum.PRESENT, AttendanceStatusEnum.PRESENT),
+        (today - timedelta(days=3), AttendanceStatusEnum.PRESENT, AttendanceStatusEnum.PRESENT),
+        (today - timedelta(days=2), AttendanceStatusEnum.PRESENT, AttendanceStatusEnum.LEAVE),
+        (today - timedelta(days=1), AttendanceStatusEnum.PRESENT, AttendanceStatusEnum.PRESENT),
+        (today, AttendanceStatusEnum.PRESENT, AttendanceStatusEnum.PRESENT),
+    ]
+
+    for att_date, op_status, appr_status in attendance_schedule:
+        db.add(
+            StaffAttendance(
+                facility_id=phc_patratu.id,
+                user_id=patratu_operator.id,
+                attendance_date=att_date,
+                status=op_status,
+                recorded_by=super_admin.id,
+            )
+        )
+        db.add(
+            StaffAttendance(
+                facility_id=phc_patratu.id,
+                user_id=patratu_approver.id,
+                attendance_date=att_date,
+                status=appr_status,
+                recorded_by=super_admin.id,
+            )
+        )
 
     db.commit()
 
