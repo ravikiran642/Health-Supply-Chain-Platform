@@ -14,6 +14,11 @@ from app.models.inventory import (
     StockTransaction,
     TransactionTypeEnum,
 )
+from app.models.bed import (
+    BedInventory,
+    BedOccupancyLog,
+    BedTypeEnum,
+)
 
 __all__ = [
     "Base",
@@ -38,4 +43,7 @@ __all__ = [
     "BatchStatusEnum",
     "StockTransaction",
     "TransactionTypeEnum",
+    "BedInventory",
+    "BedOccupancyLog",
+    "BedTypeEnum",
 ]

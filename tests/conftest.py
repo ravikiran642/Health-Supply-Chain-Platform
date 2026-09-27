@@ -19,6 +19,11 @@ from app.models.inventory import (
     StockTransaction,
     TransactionTypeEnum,
 )
+from app.models.bed import (
+    BedInventory,
+    BedOccupancyLog,
+    BedTypeEnum,
+)
 from seed import ROLE_PERMISSIONS_MATRIX
 
 # SQLite in-memory engine with static pool for testing
@@ -210,6 +215,25 @@ def seeded_db(db: Session) -> Session:
             status=BatchStatusEnum.ACTIVE,
         )
         db.add(b)
+
+    # 7. Seed Sample Bed Inventories for 2 PHCs (Patratu + Kanke)
+    sample_beds = [
+        (phc_patratu.id, BedTypeEnum.GENERAL, 20, 8),
+        (phc_patratu.id, BedTypeEnum.OXYGEN, 10, 4),
+        (phc_patratu.id, BedTypeEnum.MATERNITY, 6, 2),
+        (phc_kanke.id, BedTypeEnum.GENERAL, 25, 12),
+        (phc_kanke.id, BedTypeEnum.ICU, 4, 1),
+        (phc_kanke.id, BedTypeEnum.PEDIATRIC, 8, 3),
+    ]
+    for fac_id, b_type, total, occupied in sample_beds:
+        bed_obj = BedInventory(
+            facility_id=fac_id,
+            bed_type=b_type,
+            total_beds=total,
+            occupied_beds=occupied,
+            is_active=True,
+        )
+        db.add(bed_obj)
 
     db.commit()
 
