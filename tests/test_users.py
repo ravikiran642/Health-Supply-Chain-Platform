@@ -72,6 +72,7 @@ def test_super_admin_create_user_success(client: TestClient, seeded_db: Session)
         "scope_level": "district",
         "scope_id": str(dist.id),
         "role_names": ["District Approver"]
+        "role_names": ["District Approver"]
     }
     response = client.post("/users", json=payload, headers=admin_headers)
     assert response.status_code == 201
