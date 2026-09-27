@@ -175,7 +175,21 @@ def seeded_db(db: Session) -> Session:
         roles=[role_objects["PHC Approver"]]
     )
 
-    db.add_all([super_admin, ramgarh_user, ranchi_user, phc_operator, phc_approver])
+    # PHC Operator - Kanke (for cross-facility rejection tests)
+    phc_operator_kan = User(
+        email="phc.operator.kan@hsc.gov.in",
+        password_hash=pwd_hash,
+        full_name="Kanke PHC Operator",
+        is_active=True,
+        scope_level=ScopeLevelEnum.PHC,
+        scope_id=phc_kanke.id,
+        roles=[role_objects["PHC Operator"]]
+    )
+
+    db.add_all([
+        super_admin, ramgarh_user, ranchi_user,
+        phc_operator, phc_approver, phc_operator_kan,
+    ])
     db.flush()
 
     # 5. Seed 10 Drugs Master Catalog
@@ -257,7 +271,7 @@ def seeded_db(db: Session) -> Session:
         db.add(
             StaffAttendance(
                 facility_id=phc_patratu.id,
-                user_id=patratu_operator.id,
+                user_id=phc_operator.id,
                 attendance_date=att_date,
                 status=op_status,
                 recorded_by=super_admin.id,
@@ -266,7 +280,7 @@ def seeded_db(db: Session) -> Session:
         db.add(
             StaffAttendance(
                 facility_id=phc_patratu.id,
-                user_id=patratu_approver.id,
+                user_id=phc_approver.id,
                 attendance_date=att_date,
                 status=appr_status,
                 recorded_by=super_admin.id,
