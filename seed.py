@@ -1,11 +1,19 @@
 import sys
 import uuid
+from datetime import date, timedelta
 from sqlalchemy import text
 from app.core.database import SessionLocal, Base, engine
 from app.core.security import get_password_hash
 from app.models.geography import State, District, Facility, FacilityTypeEnum
 from app.models.rbac import Role, Permission
 from app.models.user import User, ScopeLevelEnum
+from app.models.drug import Drug, DrugCategoryEnum, DrugUnitEnum
+from app.models.inventory import (
+    InventoryBatch,
+    BatchStatusEnum,
+    StockTransaction,
+    TransactionTypeEnum,
+)
 
 
 # Exact Permission Matrix Definition
@@ -109,6 +117,12 @@ ROLE_PERMISSIONS_MATRIX = {
         "view_reports",
     ],
     "District Approver": [
+        "view_inventory",
+        "create_inventory",
+        "update_inventory",
+        "dispense_medicine",
+        "write_off_stock",
+        "report_expiry",
         "view_district",
         "view_district_forecast",
         "view_redistribution",
@@ -126,6 +140,12 @@ ROLE_PERMISSIONS_MATRIX = {
         "change_own_password",
     ],
     "State Approver": [
+        "view_inventory",
+        "create_inventory",
+        "update_inventory",
+        "dispense_medicine",
+        "write_off_stock",
+        "report_expiry",
         "view_state",
         "view_state_forecast",
         "view_district",              # can drill down to districts
@@ -144,6 +164,12 @@ ROLE_PERMISSIONS_MATRIX = {
         "change_own_password",
     ],
     "National Viewer": [
+        "view_inventory",
+        "create_inventory",
+        "update_inventory",
+        "dispense_medicine",
+        "write_off_stock",
+        "report_expiry",
         "view_national",
         "view_national_forecast",
         "view_state",                 # can drill down to states
@@ -182,6 +208,12 @@ ROLE_PERMISSIONS_MATRIX = {
         "view_own_profile",
         "update_own_profile",
         "change_own_password",
+        "view_inventory",
+        "create_inventory",
+        "update_inventory",
+        "dispense_medicine",
+        "write_off_stock",
+        "report_expiry",
     ]
 }
 
@@ -189,6 +221,9 @@ ROLE_PERMISSIONS_MATRIX = {
 def reset_database(db):
     """Truncates all tables with cascade."""
     print("Resetting database...")
+    db.execute(text("TRUNCATE TABLE stock_transactions CASCADE;"))
+    db.execute(text("TRUNCATE TABLE inventory_batches CASCADE;"))
+    db.execute(text("TRUNCATE TABLE drugs CASCADE;"))
     db.execute(text("TRUNCATE TABLE audit_logs CASCADE;"))
     db.execute(text("TRUNCATE TABLE refresh_tokens CASCADE;"))
     db.execute(text("TRUNCATE TABLE user_roles CASCADE;"))
@@ -412,8 +447,67 @@ def seed_database(reset: bool = False):
                 )
                 db.add(appr_user)
 
+        # 5. Seed 10 Drugs Master Catalog
+        print("Seeding 10 drugs master catalog...")
+        drugs_data = [
+            ("Paracetamol 500mg", DrugCategoryEnum.ANALGESIC, DrugUnitEnum.TABLET),
+            ("Amoxicillin 500mg", DrugCategoryEnum.ANTIBIOTIC, DrugUnitEnum.CAPSULE),
+            ("Ciprofloxacin 500mg", DrugCategoryEnum.ANTIBIOTIC, DrugUnitEnum.TABLET),
+            ("Artemether-Lumefantrine", DrugCategoryEnum.ANTIMALARIAL, DrugUnitEnum.TABLET),
+            ("Chloroquine Phosphate", DrugCategoryEnum.ANTIMALARIAL, DrugUnitEnum.TABLET),
+            ("Oral Rehydration Salts (ORS)", DrugCategoryEnum.ORS, DrugUnitEnum.SACHET),
+            ("Hepatitis B Vaccine", DrugCategoryEnum.VACCINE, DrugUnitEnum.VIAL),
+            ("BCG Vaccine", DrugCategoryEnum.VACCINE, DrugUnitEnum.VIAL),
+            ("Ibuprofen 400mg", DrugCategoryEnum.ANALGESIC, DrugUnitEnum.TABLET),
+            ("Zinc Sulfate 20mg", DrugCategoryEnum.OTHER, DrugUnitEnum.TABLET),
+        ]
+        drug_objects = {}
+        for drug_name, cat, unit in drugs_data:
+            d = db.query(Drug).filter_by(name=drug_name).first()
+            if not d:
+                d = Drug(name=drug_name, category=cat, unit=unit, is_active=True)
+                db.add(d)
+                db.flush()
+            drug_objects[drug_name] = d
+
+        # 6. Seed Sample Batches for 2 PHCs (Patratu + Kanke)
+        print("Seeding sample batches for Patratu PHC and Kanke PHC...")
+        patratu_fac = facilities_map.get("PAT_PHC")
+        kanke_fac = facilities_map.get("KAN_PHC")
+        today = date.today()
+
+        sample_batches = []
+        if patratu_fac:
+            sample_batches.extend([
+                (patratu_fac.id, drug_objects["Paracetamol 500mg"].id, "PAT-PCM-001", 500, today + timedelta(days=180)),
+                (patratu_fac.id, drug_objects["Paracetamol 500mg"].id, "PAT-PCM-002", 300, today + timedelta(days=30)),
+                (patratu_fac.id, drug_objects["Amoxicillin 500mg"].id, "PAT-AMX-001", 200, today + timedelta(days=90)),
+                (patratu_fac.id, drug_objects["Oral Rehydration Salts (ORS)"].id, "PAT-ORS-001", 1000, today + timedelta(days=365)),
+            ])
+        if kanke_fac:
+            sample_batches.extend([
+                (kanke_fac.id, drug_objects["Paracetamol 500mg"].id, "KAN-PCM-001", 600, today + timedelta(days=120)),
+                (kanke_fac.id, drug_objects["Artemether-Lumefantrine"].id, "KAN-ART-001", 150, today + timedelta(days=200)),
+                (kanke_fac.id, drug_objects["BCG Vaccine"].id, "KAN-BCG-001", 50, today + timedelta(days=15)),
+            ])
+
+        for fac_id, d_id, b_num, qty, exp in sample_batches:
+            existing_b = db.query(InventoryBatch).filter_by(
+                facility_id=fac_id, drug_id=d_id, batch_number=b_num
+            ).first()
+            if not existing_b:
+                b = InventoryBatch(
+                    facility_id=fac_id,
+                    drug_id=d_id,
+                    batch_number=b_num,
+                    quantity=qty,
+                    expiry_date=exp,
+                    status=BatchStatusEnum.ACTIVE,
+                )
+                db.add(b)
+
         db.commit()
-        print("Seeding successfully finished! All 24 users, geography, and RBAC matrix loaded.")
+        print("Seeding successfully finished! All 24 users, geography, RBAC matrix, 10 drugs, and sample batches loaded.")
     except Exception as e:
         db.rollback()
         print(f"Error during seeding: {e}")

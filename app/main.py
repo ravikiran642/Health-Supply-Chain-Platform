@@ -8,6 +8,7 @@ from fastapi.openapi.utils import get_openapi
 from app.core.config import settings
 from app.api.v1.auth import router as auth_router
 from app.api.v1.users import router as users_router
+from app.api.v1.inventory import router as inventory_router
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -27,9 +28,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount Auth & User Management routers
+# Mount Auth, User Management & Inventory routers
 app.include_router(auth_router, prefix=settings.API_V1_STR)
 app.include_router(users_router, prefix=settings.API_V1_STR)
+app.include_router(inventory_router, prefix=settings.API_V1_STR)
 
 # # Also expose direct /auth and /users endpoints when API_V1_STR is non-empty
 # if settings.API_V1_STR:

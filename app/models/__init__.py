@@ -7,6 +7,13 @@ from app.models.rbac import Role, Permission, role_permissions, user_roles
 from app.models.user import User, ScopeLevelEnum
 from app.models.token import RefreshToken
 from app.models.audit import AuditLog, AuditActionEnum, AuditResultEnum
+from app.models.drug import Drug, DrugCategoryEnum, DrugUnitEnum
+from app.models.inventory import (
+    InventoryBatch,
+    BatchStatusEnum,
+    StockTransaction,
+    TransactionTypeEnum,
+)
 
 __all__ = [
     "Base",
@@ -24,4 +31,11 @@ __all__ = [
     "AuditLog",
     "AuditActionEnum",
     "AuditResultEnum",
+    "Drug",
+    "DrugCategoryEnum",
+    "DrugUnitEnum",
+    "InventoryBatch",
+    "BatchStatusEnum",
+    "StockTransaction",
+    "TransactionTypeEnum",
 ]

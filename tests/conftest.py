@@ -1,5 +1,6 @@
 import pytest
 from typing import Generator
+from datetime import date, timedelta
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
@@ -11,6 +12,13 @@ from app.core.security import get_password_hash
 from app.models.geography import State, District, Facility, FacilityTypeEnum
 from app.models.rbac import Role, Permission
 from app.models.user import User, ScopeLevelEnum
+from app.models.drug import Drug, DrugCategoryEnum, DrugUnitEnum
+from app.models.inventory import (
+    InventoryBatch,
+    BatchStatusEnum,
+    StockTransaction,
+    TransactionTypeEnum,
+)
 from seed import ROLE_PERMISSIONS_MATRIX
 
 # SQLite in-memory engine with static pool for testing
@@ -91,7 +99,13 @@ def seeded_db(db: Session) -> Session:
         type=FacilityTypeEnum.PHC,
         code="PAT_PHC"
     )
-    db.add(phc_patratu)
+    phc_kanke = Facility(
+        district_id=dist_ranchi.id,
+        name="Kanke PHC",
+        type=FacilityTypeEnum.PHC,
+        code="KAN_PHC"
+    )
+    db.add_all([phc_patratu, phc_kanke])
     db.flush()
 
     # 4. Seed Test Users
@@ -153,6 +167,50 @@ def seeded_db(db: Session) -> Session:
     )
 
     db.add_all([super_admin, ramgarh_user, ranchi_user, phc_operator, phc_approver])
+    db.flush()
+
+    # 5. Seed 10 Drugs Master Catalog
+    drugs_data = [
+        ("Paracetamol 500mg", DrugCategoryEnum.ANALGESIC, DrugUnitEnum.TABLET),
+        ("Amoxicillin 500mg", DrugCategoryEnum.ANTIBIOTIC, DrugUnitEnum.CAPSULE),
+        ("Ciprofloxacin 500mg", DrugCategoryEnum.ANTIBIOTIC, DrugUnitEnum.TABLET),
+        ("Artemether-Lumefantrine", DrugCategoryEnum.ANTIMALARIAL, DrugUnitEnum.TABLET),
+        ("Chloroquine Phosphate", DrugCategoryEnum.ANTIMALARIAL, DrugUnitEnum.TABLET),
+        ("Oral Rehydration Salts (ORS)", DrugCategoryEnum.ORS, DrugUnitEnum.SACHET),
+        ("Hepatitis B Vaccine", DrugCategoryEnum.VACCINE, DrugUnitEnum.VIAL),
+        ("BCG Vaccine", DrugCategoryEnum.VACCINE, DrugUnitEnum.VIAL),
+        ("Ibuprofen 400mg", DrugCategoryEnum.ANALGESIC, DrugUnitEnum.TABLET),
+        ("Zinc Sulfate 20mg", DrugCategoryEnum.OTHER, DrugUnitEnum.TABLET),
+    ]
+    drug_objects = {}
+    for drug_name, cat, unit in drugs_data:
+        d = Drug(name=drug_name, category=cat, unit=unit, is_active=True)
+        db.add(d)
+        db.flush()
+        drug_objects[drug_name] = d
+
+    # 6. Seed Sample Batches for 2 PHCs (Patratu + Kanke)
+    today = date.today()
+    sample_batches = [
+        (phc_patratu.id, drug_objects["Paracetamol 500mg"].id, "PAT-PCM-001", 500, today + timedelta(days=180)),
+        (phc_patratu.id, drug_objects["Paracetamol 500mg"].id, "PAT-PCM-002", 300, today + timedelta(days=30)),
+        (phc_patratu.id, drug_objects["Amoxicillin 500mg"].id, "PAT-AMX-001", 200, today + timedelta(days=90)),
+        (phc_patratu.id, drug_objects["Oral Rehydration Salts (ORS)"].id, "PAT-ORS-001", 1000, today + timedelta(days=365)),
+        (phc_kanke.id, drug_objects["Paracetamol 500mg"].id, "KAN-PCM-001", 600, today + timedelta(days=120)),
+        (phc_kanke.id, drug_objects["Artemether-Lumefantrine"].id, "KAN-ART-001", 150, today + timedelta(days=200)),
+        (phc_kanke.id, drug_objects["BCG Vaccine"].id, "KAN-BCG-001", 50, today + timedelta(days=15)),
+    ]
+    for fac_id, d_id, b_num, qty, exp in sample_batches:
+        b = InventoryBatch(
+            facility_id=fac_id,
+            drug_id=d_id,
+            batch_number=b_num,
+            quantity=qty,
+            expiry_date=exp,
+            status=BatchStatusEnum.ACTIVE,
+        )
+        db.add(b)
+
     db.commit()
 
     return db
