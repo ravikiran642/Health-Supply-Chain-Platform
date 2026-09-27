@@ -27,6 +27,7 @@ from app.schemas.inventory import (
     InventoryBatchResponse,
     StockTransactionListResponse,
     DispenseResponse,
+    InventoryMyScopeResponse,
 )
 from app.services.inventory_service import InventoryService
 
@@ -83,6 +84,36 @@ def create_drug(
 
 
 # --- FACILITY STOCK ---
+
+@router.get(
+    "/my-scope",
+    response_model=InventoryMyScopeResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get medicine inventory summary across caller's geographic scope",
+)
+def get_inventory_my_scope(
+    request: Request,
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(20, ge=1, le=100, description="Items per page"),
+    district_id: Optional[UUID] = Query(None, description="Optional district filter within scope"),
+    drug_id: Optional[UUID] = Query(None, description="Optional drug filter"),
+    search: Optional[str] = Query(None, max_length=100, description="Substring search on facility name or code"),
+    current_user: User = Depends(require_permission("view_inventory")),
+    db: Session = Depends(get_db),
+):
+    """Discover facility stock metrics within caller's scope with aggregate totals across all in-scope facilities."""
+    ip_addr = get_client_ip(request)
+    return InventoryService.get_my_scope_summary(
+        db=db,
+        user=current_user,
+        ip_address=ip_addr,
+        page=page,
+        page_size=page_size,
+        district_id=district_id,
+        drug_id=drug_id,
+        search=search,
+    )
+
 
 @router.get(
     "/facility/{facility_id}",

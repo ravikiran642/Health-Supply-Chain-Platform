@@ -23,10 +23,41 @@ from app.schemas.attendance import (
     RosterItemResponse,
     AttendanceHistoryListResponse,
     AttendanceSummaryResponse,
+    AttendanceMyScopeResponse,
 )
 from app.services.attendance_service import AttendanceService
 
 router = APIRouter(prefix="/attendance", tags=["Staff Attendance"])
+
+
+@router.get(
+    "/my-scope",
+    response_model=AttendanceMyScopeResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get staff attendance summary across caller's geographic scope",
+)
+def get_attendance_my_scope(
+    request: Request,
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(20, ge=1, le=100, description="Items per page"),
+    district_id: Optional[UUID] = Query(None, description="Optional district filter within scope"),
+    date_param: Optional[date] = Query(None, alias="date", description="Target attendance date (defaults to today)"),
+    search: Optional[str] = Query(None, max_length=100, description="Substring search on facility name or code"),
+    current_user: User = Depends(require_permission("view_attendance")),
+    db: Session = Depends(get_db),
+):
+    """Discover facility staff attendance metrics within caller's scope with aggregate totals across all in-scope facilities."""
+    ip_addr = get_client_ip(request)
+    return AttendanceService.get_my_scope_summary(
+        db=db,
+        user=current_user,
+        ip_address=ip_addr,
+        page=page,
+        page_size=page_size,
+        district_id=district_id,
+        date_param=date_param,
+        search=search,
+    )
 
 
 @router.get(

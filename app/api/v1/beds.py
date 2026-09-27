@@ -22,11 +22,40 @@ from app.schemas.bed import (
     BedInventoryResponse,
     BedSummaryResponse,
     BedHistoryListResponse,
+    BedMyScopeResponse,
 )
 from app.services.bed_service import BedService
 from app.services.audit_service import AuditService
 
 router = APIRouter(prefix="/beds", tags=["Beds & Occupancy"])
+
+
+@router.get(
+    "/my-scope",
+    response_model=BedMyScopeResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get beds summary across caller's geographic scope",
+)
+def get_beds_my_scope(
+    request: Request,
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(20, ge=1, le=100, description="Items per page"),
+    district_id: Optional[UUID] = Query(None, description="Optional district filter within scope"),
+    search: Optional[str] = Query(None, max_length=100, description="Substring search on facility name or code"),
+    current_user: User = Depends(require_permission("view_beds")),
+    db: Session = Depends(get_db),
+):
+    """Discover facility bed metrics within caller's scope with aggregate totals across all in-scope facilities."""
+    ip_addr = get_client_ip(request)
+    return BedService.get_my_scope_summary(
+        db=db,
+        user=current_user,
+        ip_address=ip_addr,
+        page=page,
+        page_size=page_size,
+        district_id=district_id,
+        search=search,
+    )
 
 
 @router.get(

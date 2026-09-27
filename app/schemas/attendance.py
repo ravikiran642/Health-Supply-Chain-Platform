@@ -99,3 +99,40 @@ class AttendanceSummaryResponse(BaseModel):
     half_day_count: int
     on_duty_count: int
     attendance_rate: float
+
+
+class AttendanceMyScopeItem(BaseModel):
+    facility_id: UUID
+    facility_name: str
+    facility_code: str
+    district_id: UUID
+    district_name: str
+    total_staff: int
+    present_count: int
+    absent_count: int
+    leave_count: int
+    half_day_count: int
+    on_duty_count: int
+    marked_count: int
+    attendance_rate: float
+
+
+class AttendanceMyScopeAggregate(BaseModel):
+    total_facilities: int
+    total_staff: int
+    total_present: int
+    total_absent: int
+    total_leave: int
+    total_half_day: int
+    total_on_duty: int
+    total_marked: int
+    overall_attendance_rate: float
+
+
+class AttendanceMyScopeResponse(BaseModel):
+    scope_level: str
+    scope_name: str
+    items: List[AttendanceMyScopeItem]
+    aggregate: AttendanceMyScopeAggregate
+    pagination: PaginationMeta
+

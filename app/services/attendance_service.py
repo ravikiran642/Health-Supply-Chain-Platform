@@ -8,7 +8,9 @@ from sqlalchemy.orm import Session
 
 from app.models.user import User, ScopeLevelEnum
 from app.models.attendance import StaffAttendance, AttendanceStatusEnum
+from app.models.geography import Facility, District
 from app.models.audit import AuditResultEnum
+from sqlalchemy import func, or_
 from app.schemas.attendance import (
     AttendanceMarkRequest,
     AttendanceBulkMarkRequest,
@@ -17,10 +19,18 @@ from app.schemas.attendance import (
     RosterItemResponse,
     AttendanceHistoryListResponse,
     AttendanceSummaryResponse,
+    AttendanceMyScopeItem,
+    AttendanceMyScopeAggregate,
+    AttendanceMyScopeResponse,
 )
 from app.schemas.common import PaginationMeta
 from app.repositories.attendance_repo import AttendanceRepository
 from app.services.audit_service import AuditService
+from app.services.scope_resolver import (
+    resolve_scoped_facility_query,
+    resolve_scope_name,
+    validate_district_filter,
+)
 
 
 class AttendanceService:
@@ -343,3 +353,215 @@ class AttendanceService:
             on_duty_count=on_duty,
             attendance_rate=rate,
         )
+
+    @classmethod
+    def get_my_scope_summary(
+        cls,
+        db: Session,
+        user: User,
+        ip_address: str,
+        page: int = 1,
+        page_size: int = 20,
+        district_id: Optional[UUID] = None,
+        date_param: Optional[date] = None,
+        search: Optional[str] = None,
+    ) -> AttendanceMyScopeResponse:
+        validate_district_filter(db, user, district_id)
+
+        base_query = resolve_scoped_facility_query(db, user)
+
+        if district_id is not None:
+            base_query = base_query.filter(Facility.district_id == district_id)
+
+        if search:
+            search_term = f"%{search.strip()}%"
+            base_query = base_query.filter(
+                or_(
+                    Facility.name.ilike(search_term),
+                    Facility.code.ilike(search_term),
+                )
+            )
+
+        total_items = base_query.count()
+
+        all_facilities = base_query.all()
+        all_facility_ids = [f.id for f in all_facilities]
+
+        target_date = date_param if date_param is not None else date.today()
+
+        # 1. Total staff per facility: active users with scope_level='phc' and scope_id==facility_id
+        staff_counts_map = {}
+        if all_facility_ids:
+            staff_stats = (
+                db.query(
+                    User.scope_id,
+                    func.count(User.id),
+                )
+                .filter(
+                    User.scope_level == ScopeLevelEnum.PHC,
+                    User.scope_id.in_(all_facility_ids),
+                    User.is_active == True,
+                )
+                .group_by(User.scope_id)
+                .all()
+            )
+            for fac_id, count in staff_stats:
+                staff_counts_map[fac_id] = count
+
+        # 2. Marked counts per facility and status for target_date
+        attendance_map = {}
+        if all_facility_ids:
+            att_stats = (
+                db.query(
+                    StaffAttendance.facility_id,
+                    StaffAttendance.status,
+                    func.count(StaffAttendance.id),
+                )
+                .filter(
+                    StaffAttendance.facility_id.in_(all_facility_ids),
+                    StaffAttendance.attendance_date == target_date,
+                )
+                .group_by(StaffAttendance.facility_id, StaffAttendance.status)
+                .all()
+            )
+            for fac_id, att_status, count in att_stats:
+                if fac_id not in attendance_map:
+                    attendance_map[fac_id] = {}
+                attendance_map[fac_id][att_status] = count
+
+        # Compute facility metrics and overall aggregates
+        agg_total_staff = sum(staff_counts_map.get(fid, 0) for fid in all_facility_ids)
+        agg_total_present = 0
+        agg_total_absent = 0
+        agg_total_leave = 0
+        agg_total_half_day = 0
+        agg_total_on_duty = 0
+        agg_total_marked = 0
+
+        facility_metrics_map = {}
+        for fid in all_facility_ids:
+            t_staff = staff_counts_map.get(fid, 0)
+            status_dict = attendance_map.get(fid, {})
+            pres = status_dict.get(AttendanceStatusEnum.PRESENT, 0)
+            abse = status_dict.get(AttendanceStatusEnum.ABSENT, 0)
+            leav = status_dict.get(AttendanceStatusEnum.LEAVE, 0)
+            half = status_dict.get(AttendanceStatusEnum.HALF_DAY, 0)
+            ondu = status_dict.get(AttendanceStatusEnum.ON_DUTY, 0)
+            marked = pres + abse + leav + half + ondu
+            eff_pres = pres + ondu + (0.5 * half)
+            rate = round((eff_pres / marked) * 100, 2) if marked > 0 else 0.0
+
+            facility_metrics_map[fid] = {
+                "total_staff": t_staff,
+                "present": pres,
+                "absent": abse,
+                "leave": leav,
+                "half_day": half,
+                "on_duty": ondu,
+                "marked": marked,
+                "rate": rate,
+            }
+
+            agg_total_present += pres
+            agg_total_absent += abse
+            agg_total_leave += leav
+            agg_total_half_day += half
+            agg_total_on_duty += ondu
+            agg_total_marked += marked
+
+        agg_eff_pres = agg_total_present + agg_total_on_duty + (0.5 * agg_total_half_day)
+        agg_rate = (
+            round((agg_eff_pres / agg_total_marked) * 100, 2)
+            if agg_total_marked > 0
+            else 0.0
+        )
+
+        aggregate = AttendanceMyScopeAggregate(
+            total_facilities=total_items,
+            total_staff=agg_total_staff,
+            total_present=agg_total_present,
+            total_absent=agg_total_absent,
+            total_leave=agg_total_leave,
+            total_half_day=agg_total_half_day,
+            total_on_duty=agg_total_on_duty,
+            total_marked=agg_total_marked,
+            overall_attendance_rate=agg_rate,
+        )
+
+        paged_facilities = (
+            base_query.order_by(Facility.district_id, Facility.name)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+            .all()
+        )
+
+        items = []
+        for fac in paged_facilities:
+            m = facility_metrics_map.get(
+                fac.id,
+                {
+                    "total_staff": 0,
+                    "present": 0,
+                    "absent": 0,
+                    "leave": 0,
+                    "half_day": 0,
+                    "on_duty": 0,
+                    "marked": 0,
+                    "rate": 0.0,
+                },
+            )
+            items.append(
+                AttendanceMyScopeItem(
+                    facility_id=fac.id,
+                    facility_name=fac.name,
+                    facility_code=fac.code,
+                    district_id=fac.district_id,
+                    district_name=fac.district.name if fac.district else "",
+                    total_staff=m["total_staff"],
+                    present_count=m["present"],
+                    absent_count=m["absent"],
+                    leave_count=m["leave"],
+                    half_day_count=m["half_day"],
+                    on_duty_count=m["on_duty"],
+                    marked_count=m["marked"],
+                    attendance_rate=m["rate"],
+                )
+            )
+
+        total_pages = math.ceil(total_items / page_size) if total_items > 0 else 0
+        pagination = PaginationMeta(
+            page=page,
+            page_size=page_size,
+            total_items=total_items,
+            total_pages=total_pages,
+        )
+
+        AuditService.log_event(
+            db=db,
+            action="attendance_my_scope_viewed",
+            ip_address=ip_address,
+            result=AuditResultEnum.SUCCESS,
+            user_id=user.id,
+            resource_type="scope_dashboard",
+            resource_id=None,
+            metadata={
+                "scope_level": user.scope_level.value,
+                "scope_id": str(user.scope_id) if user.scope_id else None,
+                "page": page,
+                "page_size": page_size,
+                "total_items": total_items,
+                "district_filter": str(district_id) if district_id else None,
+                "date": str(target_date),
+                "search": search,
+            },
+        )
+        db.commit()
+
+        return AttendanceMyScopeResponse(
+            scope_level=user.scope_level.value,
+            scope_name=resolve_scope_name(db, user),
+            items=items,
+            aggregate=aggregate,
+            pagination=pagination,
+        )
+

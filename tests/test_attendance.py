@@ -426,3 +426,78 @@ def test_district_approver_cannot_mark_attendance(client: TestClient, seeded_db:
     )
     assert response.status_code == 403
     assert "missing 'mark_attendance'" in response.json()["detail"].lower()
+
+
+# 18. State Approver Attendance My-Scope -> 2 facilities, correct counts for today
+def test_state_approver_attendance_my_scope(client: TestClient, seeded_db: Session):
+    state_headers = get_auth_header(client, "state.approver.jh@hsc.gov.in")
+
+    response = client.get(f"{API_PREFIX}/attendance/my-scope", headers=state_headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["scope_level"] == "state"
+    assert data["scope_name"] == "Jharkhand"
+    assert data["pagination"]["total_items"] == 2
+    assert len(data["items"]) == 2
+
+    # Patratu has 2 staff marked present today
+    pat_item = next(item for item in data["items"] if item["facility_code"] == "PAT_PHC")
+    assert pat_item["total_staff"] == 2
+    assert pat_item["present_count"] == 2
+    assert pat_item["marked_count"] == 2
+    assert pat_item["attendance_rate"] == 100.0
+
+
+# 19. District Approver Attendance My-Scope -> 1 facility (Patratu only)
+def test_district_approver_attendance_my_scope(client: TestClient, seeded_db: Session):
+    dist_headers = get_auth_header(client, "district.approver.ram@hsc.gov.in")
+
+    response = client.get(f"{API_PREFIX}/attendance/my-scope", headers=dist_headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["scope_level"] == "district"
+    assert data["scope_name"] == "Ramgarh"
+    assert data["pagination"]["total_items"] == 1
+    assert len(data["items"]) == 1
+    assert data["items"][0]["facility_code"] == "PAT_PHC"
+    assert data["aggregate"]["total_facilities"] == 1
+
+
+# 20. Attendance My-Scope Pagination -> page_size=1 -> 1 item, total_items=2
+def test_attendance_my_scope_pagination(client: TestClient, seeded_db: Session):
+    state_headers = get_auth_header(client, "state.approver.jh@hsc.gov.in")
+
+    response = client.get(f"{API_PREFIX}/attendance/my-scope?page=1&page_size=1", headers=state_headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["items"]) == 1
+    assert data["pagination"]["page"] == 1
+    assert data["pagination"]["page_size"] == 1
+    assert data["pagination"]["total_items"] == 2
+    assert data["pagination"]["total_pages"] == 2
+    assert data["aggregate"]["total_facilities"] == 2
+
+
+# 21. Attendance My-Scope Date Filter -> date = 2 days ago -> approver shows leave_count=1 for Patratu
+def test_my_scope_date_filter(client: TestClient, seeded_db: Session):
+    state_headers = get_auth_header(client, "state.approver.jh@hsc.gov.in")
+    day_2_date = date.today() - timedelta(days=2)
+
+    response = client.get(f"{API_PREFIX}/attendance/my-scope?date={day_2_date.isoformat()}", headers=state_headers)
+    assert response.status_code == 200
+    data = response.json()
+    pat_item = next(item for item in data["items"] if item["facility_code"] == "PAT_PHC")
+    assert pat_item["leave_count"] == 1
+    assert pat_item["present_count"] == 1
+    assert pat_item["marked_count"] == 2
+
+
+# 22. District ID Filter out of scope rejected -> district user passes different district_id -> 400
+def test_district_id_filter_out_of_scope_rejected(client: TestClient, seeded_db: Session):
+    dist_headers = get_auth_header(client, "district.approver.ram@hsc.gov.in")
+    other_district = seeded_db.query(Facility).filter_by(code="KAN_PHC").first().district_id
+
+    response = client.get(f"{API_PREFIX}/attendance/my-scope?district_id={other_district}", headers=dist_headers)
+    assert response.status_code == 400
+    assert "cannot filter by another district" in response.json()["detail"].lower()
+

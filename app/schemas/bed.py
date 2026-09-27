@@ -63,3 +63,32 @@ class BedOccupancyLogResponse(BaseModel):
 class BedHistoryListResponse(BaseModel):
     items: List[BedOccupancyLogResponse]
     pagination: PaginationMeta
+
+
+class BedMyScopeItem(BaseModel):
+    facility_id: UUID
+    facility_name: str
+    facility_code: str
+    district_id: UUID
+    district_name: str
+    total_beds: int
+    occupied_beds: int
+    available_beds: int
+    occupancy_rate: float
+
+
+class BedMyScopeAggregate(BaseModel):
+    total_facilities: int
+    total_beds: int
+    total_occupied: int
+    total_available: int
+    overall_occupancy_rate: float
+
+
+class BedMyScopeResponse(BaseModel):
+    scope_level: str
+    scope_name: str
+    items: List[BedMyScopeItem]
+    aggregate: BedMyScopeAggregate
+    pagination: PaginationMeta
+
