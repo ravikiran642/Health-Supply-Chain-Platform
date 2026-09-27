@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import decode_token
 from app.models.user import User, ScopeLevelEnum
+from app.models.geography import Facility, District
 from app.models.audit import AuditActionEnum, AuditResultEnum
 from app.repositories.user_repo import UserRepository
 from app.services.audit_service import AuditService
@@ -213,3 +214,140 @@ def require_scope_tenancy(
         )
 
     return tenancy_checker
+
+
+def require_facility_scope(
+    facility_id: UUID,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> User:
+    """
+    Validates that the target facility_id falls within the authenticated user's geographic scope.
+    Hierarchy rules:
+    - Super Admin / Platform: any facility allowed
+    - National: any facility allowed
+    - State: facility.district.state_id must match user.scope_id
+    - District: facility.district_id must match user.scope_id
+    - PHC: facility_id must match user.scope_id
+
+    On violation:
+    - Writes audit log with action="permission_denied", result="denied",
+      resource_type="facility", resource_id=str(facility_id),
+      metadata={"violation": "cross_scope_access_attempt", "user_scope": user.scope_level.value, "target_facility": str(facility_id)}
+    - Raises HTTPException(403, "Forbidden: facility outside your scope")
+    """
+    # 1. Super Admin and Platform scope have universal facility access
+    if UserRepository.is_super_admin(user) or user.scope_level == ScopeLevelEnum.PLATFORM:
+        return user
+
+    # 2. National scope has national visibility
+    if user.scope_level == ScopeLevelEnum.NATIONAL:
+        return user
+
+    # 3. PHC scope: direct match with facility_id
+    if user.scope_level == ScopeLevelEnum.PHC:
+        if user.scope_id != facility_id:
+            ip_addr = get_client_ip(request)
+            AuditService.log_event(
+                db=db,
+                action=AuditActionEnum.PERMISSION_DENIED,
+                ip_address=ip_addr,
+                result=AuditResultEnum.DENIED,
+                user_id=user.id,
+                resource_type="facility",
+                resource_id=str(facility_id),
+                metadata={
+                    "violation": "cross_scope_access_attempt",
+                    "user_scope": user.scope_level.value,
+                    "target_facility": str(facility_id),
+                },
+            )
+            db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: facility outside your scope",
+            )
+        return user
+
+    # For District and State scopes, look up facility in DB
+    facility = db.query(Facility).filter(Facility.id == facility_id).first()
+    if not facility:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Facility not found",
+        )
+
+    # 4. District scope: facility.district_id must match user.scope_id
+    if user.scope_level == ScopeLevelEnum.DISTRICT:
+        if facility.district_id != user.scope_id:
+            ip_addr = get_client_ip(request)
+            AuditService.log_event(
+                db=db,
+                action=AuditActionEnum.PERMISSION_DENIED,
+                ip_address=ip_addr,
+                result=AuditResultEnum.DENIED,
+                user_id=user.id,
+                resource_type="facility",
+                resource_id=str(facility_id),
+                metadata={
+                    "violation": "cross_scope_access_attempt",
+                    "user_scope": user.scope_level.value,
+                    "target_facility": str(facility_id),
+                },
+            )
+            db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: facility outside your scope",
+            )
+        return user
+
+    # 5. State scope: facility.district.state_id must match user.scope_id
+    if user.scope_level == ScopeLevelEnum.STATE:
+        district = db.query(District).filter(District.id == facility.district_id).first()
+        if not district or district.state_id != user.scope_id:
+            ip_addr = get_client_ip(request)
+            AuditService.log_event(
+                db=db,
+                action=AuditActionEnum.PERMISSION_DENIED,
+                ip_address=ip_addr,
+                result=AuditResultEnum.DENIED,
+                user_id=user.id,
+                resource_type="facility",
+                resource_id=str(facility_id),
+                metadata={
+                    "violation": "cross_scope_access_attempt",
+                    "user_scope": user.scope_level.value,
+                    "target_facility": str(facility_id),
+                },
+            )
+            db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: facility outside your scope",
+            )
+        return user
+
+    # Any other unrecognized scope
+    ip_addr = get_client_ip(request)
+    AuditService.log_event(
+        db=db,
+        action=AuditActionEnum.PERMISSION_DENIED,
+        ip_address=ip_addr,
+        result=AuditResultEnum.DENIED,
+        user_id=user.id,
+        resource_type="facility",
+        resource_id=str(facility_id),
+        metadata={
+            "violation": "cross_scope_access_attempt",
+            "user_scope": user.scope_level.value,
+            "target_facility": str(facility_id),
+        },
+    )
+    db.commit()
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Forbidden: facility outside your scope",
+    )
+
