@@ -8,7 +8,9 @@ from sqlalchemy.orm import Session
 
 from app.models.user import User
 from app.models.bed import BedInventory, BedOccupancyLog, BedTypeEnum
+from app.models.geography import Facility, District
 from app.models.audit import AuditResultEnum
+from sqlalchemy import func, or_
 from app.schemas.bed import (
     BedCreate,
     BedUpdate,
@@ -16,10 +18,18 @@ from app.schemas.bed import (
     BedSummaryResponse,
     BedOccupancyLogResponse,
     BedHistoryListResponse,
+    BedMyScopeItem,
+    BedMyScopeAggregate,
+    BedMyScopeResponse,
 )
 from app.schemas.common import PaginationMeta
 from app.repositories.bed_repo import BedRepository
 from app.services.audit_service import AuditService
+from app.services.scope_resolver import (
+    resolve_scoped_facility_query,
+    resolve_scope_name,
+    validate_district_filter,
+)
 
 
 class BedService:
@@ -341,3 +351,137 @@ class BedService:
                 total_pages=total_pages,
             ),
         )
+
+    @classmethod
+    def get_my_scope_summary(
+        cls,
+        db: Session,
+        user: User,
+        ip_address: str,
+        page: int = 1,
+        page_size: int = 20,
+        district_id: Optional[UUID] = None,
+        search: Optional[str] = None,
+    ) -> BedMyScopeResponse:
+        validate_district_filter(db, user, district_id)
+
+        base_query = resolve_scoped_facility_query(db, user)
+
+        if district_id is not None:
+            base_query = base_query.filter(Facility.district_id == district_id)
+
+        if search:
+            search_term = f"%{search.strip()}%"
+            base_query = base_query.filter(
+                or_(
+                    Facility.name.ilike(search_term),
+                    Facility.code.ilike(search_term),
+                )
+            )
+
+        total_items = base_query.count()
+
+        # Extract all facilities in scope to compute aggregate totals across ALL facilities
+        all_facilities = base_query.all()
+        all_facility_ids = [f.id for f in all_facilities]
+
+        bed_aggregates_map = {}
+        if all_facility_ids:
+            bed_stats = (
+                db.query(
+                    BedInventory.facility_id,
+                    func.coalesce(func.sum(BedInventory.total_beds), 0).label("tot_beds"),
+                    func.coalesce(func.sum(BedInventory.occupied_beds), 0).label("occ_beds"),
+                )
+                .filter(
+                    BedInventory.facility_id.in_(all_facility_ids),
+                    BedInventory.is_active == True,
+                )
+                .group_by(BedInventory.facility_id)
+                .all()
+            )
+            for row in bed_stats:
+                bed_aggregates_map[row.facility_id] = (row.tot_beds, row.occ_beds)
+
+        # Global aggregate totals across ALL facilities in scope
+        agg_total_beds = sum(val[0] for val in bed_aggregates_map.values())
+        agg_total_occupied = sum(val[1] for val in bed_aggregates_map.values())
+        agg_total_available = max(0, agg_total_beds - agg_total_occupied)
+        agg_occupancy_rate = (
+            round((agg_total_occupied / agg_total_beds) * 100, 2)
+            if agg_total_beds > 0
+            else 0.0
+        )
+
+        aggregate = BedMyScopeAggregate(
+            total_facilities=total_items,
+            total_beds=agg_total_beds,
+            total_occupied=agg_total_occupied,
+            total_available=agg_total_available,
+            overall_occupancy_rate=agg_occupancy_rate,
+        )
+
+        # Paging for items
+        paged_facilities = (
+            base_query.order_by(Facility.district_id, Facility.name)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+            .all()
+        )
+
+        items = []
+        for fac in paged_facilities:
+            f_beds, f_occ = bed_aggregates_map.get(fac.id, (0, 0))
+            f_avail = max(0, f_beds - f_occ)
+            f_rate = round((f_occ / f_beds) * 100, 2) if f_beds > 0 else 0.0
+
+            items.append(
+                BedMyScopeItem(
+                    facility_id=fac.id,
+                    facility_name=fac.name,
+                    facility_code=fac.code,
+                    district_id=fac.district_id,
+                    district_name=fac.district.name if fac.district else "",
+                    total_beds=f_beds,
+                    occupied_beds=f_occ,
+                    available_beds=f_avail,
+                    occupancy_rate=f_rate,
+                )
+            )
+
+        total_pages = math.ceil(total_items / page_size) if total_items > 0 else 0
+        pagination = PaginationMeta(
+            page=page,
+            page_size=page_size,
+            total_items=total_items,
+            total_pages=total_pages,
+        )
+
+        AuditService.log_event(
+            db=db,
+            action="beds_my_scope_viewed",
+            ip_address=ip_address,
+            result=AuditResultEnum.SUCCESS,
+            user_id=user.id,
+            resource_type="scope_dashboard",
+            resource_id=None,
+            metadata={
+                "scope_level": user.scope_level.value,
+                "scope_id": str(user.scope_id) if user.scope_id else None,
+                "page": page,
+                "page_size": page_size,
+                "total_items": total_items,
+                "district_filter": str(district_id) if district_id else None,
+                "search": search,
+            },
+        )
+        db.commit()
+
+        return BedMyScopeResponse(
+            scope_level=user.scope_level.value,
+            scope_name=resolve_scope_name(db, user),
+            items=items,
+            aggregate=aggregate,
+            pagination=pagination,
+        )
+

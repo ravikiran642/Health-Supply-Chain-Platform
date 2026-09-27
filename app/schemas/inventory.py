@@ -95,3 +95,30 @@ class DispenseResponse(BaseModel):
     facility_id: UUID
     remaining_stock: int
     batches_affected: List[Any]
+
+
+class InventoryMyScopeItem(BaseModel):
+    facility_id: UUID
+    facility_name: str
+    facility_code: str
+    district_id: UUID
+    district_name: str
+    total_batches: int
+    total_quantity: int
+    expiring_30d_count: int
+
+
+class InventoryMyScopeAggregate(BaseModel):
+    total_facilities: int
+    total_batches: int
+    total_quantity: int
+    total_expiring_30d: int
+
+
+class InventoryMyScopeResponse(BaseModel):
+    scope_level: str
+    scope_name: str
+    items: List[InventoryMyScopeItem]
+    aggregate: InventoryMyScopeAggregate
+    pagination: PaginationMeta
+

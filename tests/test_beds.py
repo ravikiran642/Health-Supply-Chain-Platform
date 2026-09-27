@@ -274,3 +274,71 @@ def test_inline_permission_denial_audited(client: TestClient, seeded_db: Session
     assert audit is not None
     assert audit.resource_type == "bed_inventory"
     assert audit.metadata_.get("required_permission") == "update_bed_occupancy"
+
+
+# 13. State Approver Beds My-Scope -> 2 facilities, aggregate totals = sum
+def test_state_approver_beds_my_scope(client: TestClient, seeded_db: Session):
+    state_headers = get_auth_header(client, "state.approver.jh@hsc.gov.in")
+
+    response = client.get(f"{API_PREFIX}/beds/my-scope", headers=state_headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["scope_level"] == "state"
+    assert data["scope_name"] == "Jharkhand"
+    assert data["pagination"]["total_items"] == 2
+    assert len(data["items"]) == 2
+
+    # Verify aggregate totals reflect both facilities
+    item_beds_sum = sum(item["total_beds"] for item in data["items"])
+    item_occ_sum = sum(item["occupied_beds"] for item in data["items"])
+    item_avail_sum = sum(item["available_beds"] for item in data["items"])
+
+    assert data["aggregate"]["total_facilities"] == 2
+    assert data["aggregate"]["total_beds"] == item_beds_sum
+    assert data["aggregate"]["total_occupied"] == item_occ_sum
+    assert data["aggregate"]["total_available"] == item_avail_sum
+
+
+# 14. District Approver Beds My-Scope -> 1 facility (Patratu only)
+def test_district_approver_beds_my_scope(client: TestClient, seeded_db: Session):
+    dist_headers = get_auth_header(client, "district.approver.ram@hsc.gov.in")
+
+    response = client.get(f"{API_PREFIX}/beds/my-scope", headers=dist_headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["scope_level"] == "district"
+    assert data["scope_name"] == "Ramgarh"
+    assert data["pagination"]["total_items"] == 1
+    assert len(data["items"]) == 1
+    assert data["items"][0]["facility_code"] == "PAT_PHC"
+    assert data["aggregate"]["total_facilities"] == 1
+
+
+# 15. Beds My-Scope Pagination -> page_size=1 -> 1 item, total_items=2, total_pages=2
+def test_my_scope_pagination(client: TestClient, seeded_db: Session):
+    state_headers = get_auth_header(client, "state.approver.jh@hsc.gov.in")
+
+    response = client.get(f"{API_PREFIX}/beds/my-scope?page=1&page_size=1", headers=state_headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["items"]) == 1
+    assert data["pagination"]["page"] == 1
+    assert data["pagination"]["page_size"] == 1
+    assert data["pagination"]["total_items"] == 2
+    assert data["pagination"]["total_pages"] == 2
+    # Aggregate still covers all 2 facilities
+    assert data["aggregate"]["total_facilities"] == 2
+
+
+# 16. Beds My-Scope Search -> search="pat" -> 1 facility (Patratu)
+def test_my_scope_search(client: TestClient, seeded_db: Session):
+    state_headers = get_auth_header(client, "state.approver.jh@hsc.gov.in")
+
+    response = client.get(f"{API_PREFIX}/beds/my-scope?search=pat", headers=state_headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["pagination"]["total_items"] == 1
+    assert len(data["items"]) == 1
+    assert data["items"][0]["facility_code"] == "PAT_PHC"
+    assert data["aggregate"]["total_facilities"] == 1
+

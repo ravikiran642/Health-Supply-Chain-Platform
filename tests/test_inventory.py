@@ -381,3 +381,60 @@ def test_quantity_never_negative_constraint(seeded_db: Session):
     with pytest.raises(IntegrityError):
         seeded_db.flush()
     seeded_db.rollback()
+
+
+# 16. State Approver Inventory My-Scope -> 2 facilities with correct stock sums
+def test_state_approver_inventory_my_scope(client: TestClient, seeded_db: Session):
+    state_headers = get_auth_header(client, "state.approver.jh@hsc.gov.in")
+
+    response = client.get(f"{API_PREFIX}/inventory/my-scope", headers=state_headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["scope_level"] == "state"
+    assert data["scope_name"] == "Jharkhand"
+    assert data["pagination"]["total_items"] == 2
+    assert len(data["items"]) == 2
+
+    # Verify aggregate totals reflect sum of all facilities
+    item_batches_sum = sum(item["total_batches"] for item in data["items"])
+    item_qty_sum = sum(item["total_quantity"] for item in data["items"])
+    item_exp_sum = sum(item["expiring_30d_count"] for item in data["items"])
+
+    assert data["aggregate"]["total_facilities"] == 2
+    assert data["aggregate"]["total_batches"] == item_batches_sum
+    assert data["aggregate"]["total_quantity"] == item_qty_sum
+    assert data["aggregate"]["total_expiring_30d"] == item_exp_sum
+
+
+# 17. District Approver Inventory My-Scope -> 1 facility (Patratu only)
+def test_district_approver_inventory_my_scope(client: TestClient, seeded_db: Session):
+    dist_headers = get_auth_header(client, "district.approver.ram@hsc.gov.in")
+
+    response = client.get(f"{API_PREFIX}/inventory/my-scope", headers=dist_headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["scope_level"] == "district"
+    assert data["scope_name"] == "Ramgarh"
+    assert data["pagination"]["total_items"] == 1
+    assert len(data["items"]) == 1
+    assert data["items"][0]["facility_code"] == "PAT_PHC"
+    assert data["aggregate"]["total_facilities"] == 1
+
+
+# 18. Inventory My-Scope Pagination and Aggregate -> page_size=1 -> aggregate still reflects both facilities
+def test_my_scope_pagination_and_aggregate(client: TestClient, seeded_db: Session):
+    state_headers = get_auth_header(client, "state.approver.jh@hsc.gov.in")
+
+    response = client.get(f"{API_PREFIX}/inventory/my-scope?page=1&page_size=1", headers=state_headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["items"]) == 1
+    assert data["pagination"]["page"] == 1
+    assert data["pagination"]["page_size"] == 1
+    assert data["pagination"]["total_items"] == 2
+    assert data["pagination"]["total_pages"] == 2
+
+    # Aggregate still covers all 2 facilities in scope
+    assert data["aggregate"]["total_facilities"] == 2
+    assert data["aggregate"]["total_batches"] >= data["items"][0]["total_batches"]
+    assert data["aggregate"]["total_quantity"] >= data["items"][0]["total_quantity"]

@@ -14,7 +14,10 @@ from app.models.inventory import (
     StockTransaction,
     TransactionTypeEnum,
 )
+from app.models.geography import Facility, District
 from app.models.audit import AuditResultEnum
+from sqlalchemy import func, or_, and_, case
+from datetime import timedelta
 from app.schemas.drug import DrugCreate, DrugResponse
 from app.schemas.inventory import (
     StockReceiveRequest,
@@ -25,11 +28,19 @@ from app.schemas.inventory import (
     StockTransactionResponse,
     StockTransactionListResponse,
     DispenseResponse,
+    InventoryMyScopeItem,
+    InventoryMyScopeAggregate,
+    InventoryMyScopeResponse,
 )
 from app.schemas.common import PaginationMeta
 from app.repositories.drug_repo import DrugRepository
 from app.repositories.inventory_repo import InventoryRepository
 from app.services.audit_service import AuditService
+from app.services.scope_resolver import (
+    resolve_scoped_facility_query,
+    resolve_scope_name,
+    validate_district_filter,
+)
 
 
 class InventoryService:
@@ -417,11 +428,158 @@ class InventoryService:
 
         total_pages = math.ceil(total / page_size) if total > 0 else 0
         return StockTransactionListResponse(
-            items=res_items,
-            pagination=PaginationMeta(
-                page=page,
-                page_size=page_size,
-                total_items=total,
-                total_pages=total_pages,
-            ),
+             items=res_items,
+             pagination=PaginationMeta(
+                 page=page,
+                 page_size=page_size,
+                 total_items=total,
+                 total_pages=total_pages,
+             ),
+         )
+
+    @classmethod
+    def get_my_scope_summary(
+        cls,
+        db: Session,
+        user: User,
+        ip_address: str,
+        page: int = 1,
+        page_size: int = 20,
+        district_id: Optional[UUID] = None,
+        drug_id: Optional[UUID] = None,
+        search: Optional[str] = None,
+    ) -> InventoryMyScopeResponse:
+        validate_district_filter(db, user, district_id)
+
+        base_query = resolve_scoped_facility_query(db, user)
+
+        if district_id is not None:
+            base_query = base_query.filter(Facility.district_id == district_id)
+
+        if search:
+            search_term = f"%{search.strip()}%"
+            base_query = base_query.filter(
+                or_(
+                    Facility.name.ilike(search_term),
+                    Facility.code.ilike(search_term),
+                )
+            )
+
+        total_items = base_query.count()
+
+        # Extract all facilities in scope
+        all_facilities = base_query.all()
+        all_facility_ids = [f.id for f in all_facilities]
+
+        inv_aggregates_map = {}
+        today = date.today()
+        exp_30d = today + timedelta(days=30)
+
+        if all_facility_ids:
+            batch_query = db.query(
+                InventoryBatch.facility_id,
+                func.count(InventoryBatch.id).label("tot_batches"),
+                func.coalesce(func.sum(InventoryBatch.quantity), 0).label("tot_qty"),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (
+                                and_(
+                                    InventoryBatch.expiry_date >= today,
+                                    InventoryBatch.expiry_date <= exp_30d,
+                                ),
+                                1,
+                            ),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("exp_30d"),
+            ).filter(
+                InventoryBatch.facility_id.in_(all_facility_ids),
+                InventoryBatch.status == BatchStatusEnum.ACTIVE,
+                InventoryBatch.quantity > 0,
+            )
+
+            if drug_id is not None:
+                batch_query = batch_query.filter(InventoryBatch.drug_id == drug_id)
+
+            batch_stats = batch_query.group_by(InventoryBatch.facility_id).all()
+            for row in batch_stats:
+                inv_aggregates_map[row.facility_id] = (
+                    row.tot_batches,
+                    int(row.tot_qty),
+                    int(row.exp_30d),
+                )
+
+        agg_total_batches = sum(val[0] for val in inv_aggregates_map.values())
+        agg_total_quantity = sum(val[1] for val in inv_aggregates_map.values())
+        agg_total_expiring_30d = sum(val[2] for val in inv_aggregates_map.values())
+
+        aggregate = InventoryMyScopeAggregate(
+            total_facilities=total_items,
+            total_batches=agg_total_batches,
+            total_quantity=agg_total_quantity,
+            total_expiring_30d=agg_total_expiring_30d,
         )
+
+        paged_facilities = (
+            base_query.order_by(Facility.district_id, Facility.name)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+            .all()
+        )
+
+        items = []
+        for fac in paged_facilities:
+            f_batches, f_qty, f_exp = inv_aggregates_map.get(fac.id, (0, 0, 0))
+            items.append(
+                InventoryMyScopeItem(
+                    facility_id=fac.id,
+                    facility_name=fac.name,
+                    facility_code=fac.code,
+                    district_id=fac.district_id,
+                    district_name=fac.district.name if fac.district else "",
+                    total_batches=f_batches,
+                    total_quantity=f_qty,
+                    expiring_30d_count=f_exp,
+                )
+            )
+
+        total_pages = math.ceil(total_items / page_size) if total_items > 0 else 0
+        pagination = PaginationMeta(
+            page=page,
+            page_size=page_size,
+            total_items=total_items,
+            total_pages=total_pages,
+        )
+
+        AuditService.log_event(
+            db=db,
+            action="inventory_my_scope_viewed",
+            ip_address=ip_address,
+            result=AuditResultEnum.SUCCESS,
+            user_id=user.id,
+            resource_type="scope_dashboard",
+            resource_id=None,
+            metadata={
+                "scope_level": user.scope_level.value,
+                "scope_id": str(user.scope_id) if user.scope_id else None,
+                "page": page,
+                "page_size": page_size,
+                "total_items": total_items,
+                "district_filter": str(district_id) if district_id else None,
+                "drug_id": str(drug_id) if drug_id else None,
+                "search": search,
+            },
+        )
+        db.commit()
+
+        return InventoryMyScopeResponse(
+            scope_level=user.scope_level.value,
+            scope_name=resolve_scope_name(db, user),
+            items=items,
+            aggregate=aggregate,
+            pagination=pagination,
+        )
+
