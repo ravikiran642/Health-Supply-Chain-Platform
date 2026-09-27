@@ -14,6 +14,11 @@ from app.models.inventory import (
     StockTransaction,
     TransactionTypeEnum,
 )
+from app.models.bed import (
+    BedInventory,
+    BedOccupancyLog,
+    BedTypeEnum,
+)
 
 
 # Exact Permission Matrix Definition
@@ -117,6 +122,7 @@ ROLE_PERMISSIONS_MATRIX = {
         "view_reports",
     ],
     "District Approver": [
+        "view_beds",
         "view_inventory",
         "report_expiry",
         "view_district",
@@ -137,6 +143,7 @@ ROLE_PERMISSIONS_MATRIX = {
     ],
     "State Approver": [
         "view_inventory",
+        "view_beds",
         "report_expiry",
         "view_state",
         "view_state_forecast",
@@ -157,6 +164,7 @@ ROLE_PERMISSIONS_MATRIX = {
     ],
     "National Viewer": [
         "view_inventory",
+        "view_beds",
         "report_expiry",
         "view_national",
         "view_national_forecast",
@@ -202,6 +210,10 @@ ROLE_PERMISSIONS_MATRIX = {
         "dispense_medicine",
         "write_off_stock",
         "report_expiry",
+        "view_beds",
+        "update_bed_occupancy",
+        "add_bed",
+        "deactivate_bed",
     ]
 }
 
@@ -209,6 +221,8 @@ ROLE_PERMISSIONS_MATRIX = {
 def reset_database(db):
     """Truncates all tables with cascade."""
     print("Resetting database...")
+    db.execute(text("TRUNCATE TABLE bed_occupancy_logs CASCADE;"))
+    db.execute(text("TRUNCATE TABLE bed_inventories CASCADE;"))
     db.execute(text("TRUNCATE TABLE stock_transactions CASCADE;"))
     db.execute(text("TRUNCATE TABLE inventory_batches CASCADE;"))
     db.execute(text("TRUNCATE TABLE drugs CASCADE;"))
@@ -494,8 +508,38 @@ def seed_database(reset: bool = False):
                 )
                 db.add(b)
 
+        # 7. Seed Sample Bed Inventories for 2 PHCs (Patratu + Kanke)
+        print("Seeding sample bed inventories for Patratu PHC and Kanke PHC...")
+        sample_beds = []
+        if patratu_fac:
+            sample_beds.extend([
+                (patratu_fac.id, BedTypeEnum.GENERAL, 20, 8),
+                (patratu_fac.id, BedTypeEnum.OXYGEN, 10, 4),
+                (patratu_fac.id, BedTypeEnum.MATERNITY, 6, 2),
+            ])
+        if kanke_fac:
+            sample_beds.extend([
+                (kanke_fac.id, BedTypeEnum.GENERAL, 25, 12),
+                (kanke_fac.id, BedTypeEnum.ICU, 4, 1),
+                (kanke_fac.id, BedTypeEnum.PEDIATRIC, 8, 3),
+            ])
+
+        for fac_id, b_type, total, occupied in sample_beds:
+            existing_bed = db.query(BedInventory).filter_by(
+                facility_id=fac_id, bed_type=b_type
+            ).first()
+            if not existing_bed:
+                bed_obj = BedInventory(
+                    facility_id=fac_id,
+                    bed_type=b_type,
+                    total_beds=total,
+                    occupied_beds=occupied,
+                    is_active=True,
+                )
+                db.add(bed_obj)
+
         db.commit()
-        print("Seeding successfully finished! All 24 users, geography, RBAC matrix, 10 drugs, and sample batches loaded.")
+        print("Seeding successfully finished! All 24 users, geography, RBAC matrix, 10 drugs, sample batches, and bed inventories loaded.")
     except Exception as e:
         db.rollback()
         print(f"Error during seeding: {e}")
