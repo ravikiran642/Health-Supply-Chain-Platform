@@ -226,20 +226,13 @@ class UserService:
         cls.validate_scope_assignment(db, user_in.scope_level, user_in.scope_id)
 
         # 3. Role resolution
-        role_names: List[str] = []
-        if user_in.roles:
-            role_names.extend(user_in.roles)
-        if user_in.role and user_in.role not in role_names:
-            role_names.append(user_in.role)
-
-        resolved_roles: List[Role] = []
-        for r_name in role_names:
+        if len(user_in.role_names) != 1:
+            raise HTTPException(400, "Exactly one role must be assigned")
+        resolved_roles = []
+        for r_name in user_in.role_names:
             r_obj = UserRepository.get_role_by_name(db, r_name)
             if not r_obj:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Role '{r_name}' does not exist"
-                )
+                raise HTTPException(400, f"Role '{r_name}' does not exist")
             resolved_roles.append(r_obj)
 
         # 4. Create user
@@ -310,9 +303,11 @@ class UserService:
             target_user.scope_id = new_scope_id
 
         # Roles update
-        if user_in.roles is not None:
+        if user_in.role_names is not None:
+            if len(user_in.role_names) != 1:
+                raise HTTPException(400, "Exactly one role must be assigned")
             resolved_roles: List[Role] = []
-            for r_name in user_in.roles:
+            for r_name in user_in.role_names:
                 r_obj = UserRepository.get_role_by_name(db, r_name)
                 if not r_obj:
                     raise HTTPException(

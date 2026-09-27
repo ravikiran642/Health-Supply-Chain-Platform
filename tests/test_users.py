@@ -71,7 +71,7 @@ def test_super_admin_create_user_success(client: TestClient, seeded_db: Session)
         "phone": "+919876543210",
         "scope_level": "district",
         "scope_id": str(dist.id),
-        "roles": ["District Approver"]
+        "role_names": ["District Approver"]
     }
     response = client.post("/users", json=payload, headers=admin_headers)
     assert response.status_code == 201
@@ -107,7 +107,8 @@ def test_create_user_validations(client: TestClient, seeded_db: Session):
         "email": "superadmin@hsc.gov.in",
         "full_name": "Duplicate Admin",
         "password": "SecurePassword1!",
-        "scope_level": "platform"
+        "scope_level": "platform",
+        "role_names": ["Super Admin"]
     }
     resp_dup = client.post("/users", json=dup_payload, headers=admin_headers)
     assert resp_dup.status_code == 400
@@ -118,7 +119,8 @@ def test_create_user_validations(client: TestClient, seeded_db: Session):
         "email": "weak.user@hsc.gov.in",
         "full_name": "Weak User",
         "password": "passwordonly",
-        "scope_level": "platform"
+        "scope_level": "platform",
+        "role_names": ["Super Admin"]
     }
     resp_weak = client.post("/users", json=weak_payload, headers=admin_headers)
     assert resp_weak.status_code == 422
@@ -128,7 +130,8 @@ def test_create_user_validations(client: TestClient, seeded_db: Session):
         "email": "missing.scope@hsc.gov.in",
         "full_name": "Missing Scope",
         "password": "SecurePassword1!",
-        "scope_level": "district"
+        "scope_level": "district",
+        "role_names": ["District Approver"]
     }
     resp_missing = client.post("/users", json=missing_scope_payload, headers=admin_headers)
     assert resp_missing.status_code == 400
@@ -140,11 +143,34 @@ def test_create_user_validations(client: TestClient, seeded_db: Session):
         "full_name": "Invalid Platform",
         "password": "SecurePassword1!",
         "scope_level": "platform",
-        "scope_id": str(dist.id)
+        "scope_id": str(dist.id),
+        "role_names": ["Super Admin"]
     }
     resp_invalid_platform = client.post("/users", json=invalid_platform_payload, headers=admin_headers)
     assert resp_invalid_platform.status_code == 400
     assert "scope_id must be None" in resp_invalid_platform.json()["detail"]
+
+    # Multi-role assignment rejected (exactly one role enforced) → 422
+    multi_role_payload = {
+        "email": "multi.role@hsc.gov.in",
+        "full_name": "Multi Role User",
+        "password": "SecurePassword1!",
+        "scope_level": "phc",
+        "role_names": ["PHC Operator", "District Approver"]
+    }
+    resp_multi = client.post("/users", json=multi_role_payload, headers=admin_headers)
+    assert resp_multi.status_code == 422
+
+    # Empty role assignment rejected (min_length=1 enforced) → 422
+    empty_role_payload = {
+        "email": "empty.role@hsc.gov.in",
+        "full_name": "Empty Role User",
+        "password": "SecurePassword1!",
+        "scope_level": "platform",
+        "role_names": []
+    }
+    resp_empty = client.post("/users", json=empty_role_payload, headers=admin_headers)
+    assert resp_empty.status_code == 422
 
 
 # 5. Super Admin updates user details

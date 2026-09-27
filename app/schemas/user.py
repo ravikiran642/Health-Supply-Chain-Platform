@@ -36,8 +36,7 @@ class UserCreate(BaseModel):
     is_active: bool = True
     scope_level: ScopeLevelEnum
     scope_id: Optional[UUID] = None
-    role: Optional[str] = None
-    roles: Optional[List[str]] = None
+    role_names: List[str] = Field(..., min_length=1, max_length=1)
 
     @field_validator("password")
     @classmethod
@@ -51,7 +50,7 @@ class UserUpdate(BaseModel):
     phone: Optional[str] = Field(None, max_length=20)
     scope_level: Optional[ScopeLevelEnum] = None
     scope_id: Optional[UUID] = None
-    roles: Optional[List[str]] = None
+    role_names: Optional[List[str]] = Field(None, min_length=1, max_length=1)
 
 
 class UserProfileUpdate(BaseModel):
