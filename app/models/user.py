@@ -37,6 +37,8 @@ class User(Base):
         index=True
     )
     scope_id = Column(GUID(), nullable=True, index=True)
+    phone = Column(String(20), nullable=True)
+    must_change_password = Column(Boolean, default=False, nullable=False)
     created_at = Column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),

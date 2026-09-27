@@ -4,12 +4,12 @@ reused across services and route dependencies.
 """
 from uuid import UUID
 from datetime import datetime, timezone
-from typing import Optional, Sequence
-from sqlalchemy import select, and_
+from typing import Optional, Sequence, Tuple, List
+from sqlalchemy import select, func, and_, or_, distinct, update
 from sqlalchemy.orm import Session
 from app.models.user import User, ScopeLevelEnum
 from app.models.token import RefreshToken
-from app.models.rbac import Role
+from app.models.rbac import Role, Permission
 from app.schemas.user import UserCreate
 from app.core.security import get_password_hash
 
@@ -23,9 +23,58 @@ class UserRepository:
 
     @staticmethod
     def get_by_email(db: Session, email: str) -> Optional[User]:
-        """Fetch user by unique email address."""
-        stmt = select(User).where(User.email == email.strip().lower())
+        """Fetch user by unique email address (case-insensitive)."""
+        stmt = select(User).where(func.lower(User.email) == email.strip().lower())
         return db.scalars(stmt).first()
+
+    @staticmethod
+    def list_users(
+        db: Session,
+        scope_level: Optional[ScopeLevelEnum] = None,
+        role: Optional[str] = None,
+        is_active: Optional[bool] = None,
+        search: Optional[str] = None,
+        page: int = 1,
+        page_size: int = 50
+    ) -> Tuple[List[User], int]:
+        """
+        List users with filtering and pagination.
+        Filters: scope_level, role, is_active, search (email or full_name).
+        """
+        stmt = select(User)
+        count_stmt = select(func.count(distinct(User.id)))
+
+        # Role filter requires join
+        if role:
+            stmt = stmt.join(User.roles).where(Role.name == role)
+            count_stmt = count_stmt.join(User.roles).where(Role.name == role)
+
+        conditions = []
+        if scope_level:
+            conditions.append(User.scope_level == scope_level)
+        if is_active is not None:
+            conditions.append(User.is_active == is_active)
+        if search:
+            search_term = f"%{search.strip()}%"
+            conditions.append(
+                or_(
+                    User.full_name.ilike(search_term),
+                    User.email.ilike(search_term)
+                )
+            )
+
+        if conditions:
+            stmt = stmt.where(and_(*conditions))
+            count_stmt = count_stmt.where(and_(*conditions))
+
+        total = db.scalar(count_stmt) or 0
+
+        # Pagination & ordering
+        offset = (page - 1) * page_size
+        stmt = stmt.order_by(User.created_at.desc()).offset(offset).limit(page_size)
+
+        users = list(db.scalars(stmt).unique().all())
+        return users, total
 
     @staticmethod
     def create(db: Session, user_in: UserCreate, roles: Optional[list[Role]] = None) -> User:
@@ -34,6 +83,7 @@ class UserRepository:
             email=user_in.email.strip().lower(),
             password_hash=get_password_hash(user_in.password),
             full_name=user_in.full_name,
+            phone=user_in.phone,
             is_active=user_in.is_active,
             scope_level=user_in.scope_level,
             scope_id=user_in.scope_id,
@@ -43,6 +93,18 @@ class UserRepository:
         db.add(new_user)
         db.flush()
         return new_user
+
+    @staticmethod
+    def get_role_by_name(db: Session, role_name: str) -> Optional[Role]:
+        """Fetch role by name."""
+        stmt = select(Role).where(Role.name == role_name)
+        return db.scalars(stmt).first()
+
+    @staticmethod
+    def get_roles_by_names(db: Session, role_names: List[str]) -> List[Role]:
+        """Fetch list of roles by names."""
+        stmt = select(Role).where(Role.name.in_(role_names))
+        return list(db.scalars(stmt).all())
 
     @staticmethod
     def get_refresh_token(db: Session, token_hash: str) -> Optional[RefreshToken]:
@@ -80,9 +142,21 @@ class UserRepository:
         return False
 
     @staticmethod
+    def revoke_all_user_tokens(db: Session, user_id: UUID) -> int:
+        """Revoke all active refresh tokens for a specified user."""
+        stmt = (
+            update(RefreshToken)
+            .where(and_(RefreshToken.user_id == user_id, RefreshToken.revoked == False))
+            .values(revoked=True)
+        )
+        result = db.execute(stmt)
+        db.flush()
+        return result.rowcount
+
+    @staticmethod
     def is_super_admin(user: User) -> bool:
         """Determines if the user has super admin permissions."""
-        return "manage_permissions" in user.permissions or "view_all" in user.permissions
+        return "manage_permissions" in user.permissions or "view_all" in user.permissions or "manage_users" in user.permissions
 
     @staticmethod
     def apply_scope_filter(query, user: User, target_model, entity_scope_id_col):
