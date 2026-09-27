@@ -357,19 +357,21 @@ def test_transaction_ledger(client: TestClient, db: Session):
 
 
 # 15. Quantity never goes negative (DB constraint enforced)
-def test_quantity_never_negative_constraint(db: Session):
-    patratu = db.query(Facility).filter_by(code="PAT_PHC").first()
-    drug = db.query(Drug).first()
-
+def test_quantity_never_negative_constraint(seeded_db: Session):
+    patratu = seeded_db.query(Facility).filter_by(code="PAT_PHC").first()
+    drug = seeded_db.query(Drug).first()
+    assert patratu is not None
+    assert drug is not None
+    
     batch_neg = InventoryBatch(
         facility_id=patratu.id,
         drug_id=drug.id,
         batch_number="NEGATIVE-TEST-BATCH",
-        quantity=-10,  # Negative quantity violates check constraint
+        quantity=-10,
         expiry_date=date.today() + timedelta(days=30),
         status=BatchStatusEnum.ACTIVE,
     )
-    db.add(batch_neg)
+    seeded_db.add(batch_neg)
     with pytest.raises(IntegrityError):
-        db.flush()
-    db.rollback()
+        seeded_db.flush()
+    seeded_db.rollback()

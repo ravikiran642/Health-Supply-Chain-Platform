@@ -118,10 +118,6 @@ ROLE_PERMISSIONS_MATRIX = {
     ],
     "District Approver": [
         "view_inventory",
-        "create_inventory",
-        "update_inventory",
-        "dispense_medicine",
-        "write_off_stock",
         "report_expiry",
         "view_district",
         "view_district_forecast",
@@ -141,10 +137,6 @@ ROLE_PERMISSIONS_MATRIX = {
     ],
     "State Approver": [
         "view_inventory",
-        "create_inventory",
-        "update_inventory",
-        "dispense_medicine",
-        "write_off_stock",
         "report_expiry",
         "view_state",
         "view_state_forecast",
@@ -165,10 +157,6 @@ ROLE_PERMISSIONS_MATRIX = {
     ],
     "National Viewer": [
         "view_inventory",
-        "create_inventory",
-        "update_inventory",
-        "dispense_medicine",
-        "write_off_stock",
         "report_expiry",
         "view_national",
         "view_national_forecast",
