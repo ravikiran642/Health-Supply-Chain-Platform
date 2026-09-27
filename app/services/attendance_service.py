@@ -293,7 +293,7 @@ class AttendanceService:
         )
 
         res_items = [AttendanceResponse.model_validate(item) for item in items]
-        total_pages = math.ceil(total / page_size) if total > 0 else 1
+        total_pages = math.ceil(total / page_size) if total > 0 else 0
 
         return AttendanceHistoryListResponse(
             items=res_items,
