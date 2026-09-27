@@ -48,7 +48,8 @@ class AuthService:
                 detail="Incorrect email or password",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-
+        
+        
         if not user.is_active:
             AuditService.log_event(
                 db=db,
@@ -63,6 +64,17 @@ class AuthService:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="User account is deactivated",
                 headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        # Only log the password-change reminder once the login is actually granted
+        if getattr(user, "must_change_password", False):
+            AuditService.log_event(
+                db=db,
+                action="login_requires_password_change",
+                ip_address=ip_address,
+                result=AuditResultEnum.SUCCESS,
+                user_id=user.id,
+                metadata={"flag": "must_change_password"}
             )
 
         # Generate access token claims

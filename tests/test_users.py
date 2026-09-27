@@ -150,7 +150,7 @@ def test_create_user_validations(client: TestClient, seeded_db: Session):
     assert resp_invalid_platform.status_code == 400
     assert "scope_id must be None" in resp_invalid_platform.json()["detail"]
 
-    # Multi-role assignment rejected (exactly one role enforced) → 422
+        # Multi-role assignment rejected (exactly one enforced) → 422
     multi_role_payload = {
         "email": "multi.role@hsc.gov.in",
         "full_name": "Multi Role User",
@@ -161,7 +161,7 @@ def test_create_user_validations(client: TestClient, seeded_db: Session):
     resp_multi = client.post("/users", json=multi_role_payload, headers=admin_headers)
     assert resp_multi.status_code == 422
 
-    # Empty role assignment rejected (min_length=1 enforced) → 422
+    # Empty role_names rejected (min_length=1 enforced) → 422
     empty_role_payload = {
         "email": "empty.role@hsc.gov.in",
         "full_name": "Empty Role User",

@@ -31,10 +31,10 @@ app.add_middleware(
 app.include_router(auth_router, prefix=settings.API_V1_STR)
 app.include_router(users_router, prefix=settings.API_V1_STR)
 
-# Also expose direct /auth and /users endpoints when API_V1_STR is non-empty
-if settings.API_V1_STR:
-    app.include_router(auth_router)
-    app.include_router(users_router)
+# # Also expose direct /auth and /users endpoints when API_V1_STR is non-empty
+# if settings.API_V1_STR:
+#     app.include_router(auth_router)
+#     app.include_router(users_router)
 
 
 @app.get("/health", tags=["System"])
