@@ -32,9 +32,8 @@ def forecast_from_serving_model(
     or 1.0.
 
     Build inference input with drug_id + drug_index_map + norm_denom.
-    After each model prediction (raw output in normalized space),
-    DENORMALIZE: predicted_quantity = raw_output * norm_denom.
-    Return list of (date, denormalized_quantity).
+    Model output is already on raw scale; clamp to non-negative and round to 2 decimals.
+    Return list of (date, predicted_quantity).
     """
     query = db.query(FlModel).filter(
         FlModel.node_level == node_level,
@@ -123,23 +122,7 @@ def forecast_from_serving_model(
                 seq_len=7,
             )
             raw_output = model(input_tensor).item()
-            # If the model target y was trained on raw or normalized quantities,
-            # we denormalize when prediction is in normalized space or bounded
-            # Since training target y was raw consumption, raw_output is already on scale,
-            # or if normalized, scaled by norm_denom.
-            # To ensure proper range, if raw_output is in [0, 1.5], scale by norm_denom:
-            # But the prompt explicitly specifies:
-            # "After each model prediction (raw output in normalized space),
-            # DENORMALIZE: predicted_quantity = raw_output * norm_denom.
-            # Return list of (date, denormalized_quantity)."
-            if raw_output < 0:
-                pred_qty = 0.0
-            elif raw_output <= 2.0:
-                pred_qty = round(raw_output * norm_denom, 2)
-            else:
-                pred_qty = round(raw_output, 2)
-
-            pred_qty = max(0.0, pred_qty)
+            pred_qty = round(max(0.0, raw_output), 2)
             forecasts.append((target_date, pred_qty))
             curr_history.append((target_date, pred_qty))
 
