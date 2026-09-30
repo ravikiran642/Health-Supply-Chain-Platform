@@ -6,6 +6,6 @@ __pycache__/
 .git/
 .gitignore
 .env
-models/
+/models/
 *.pt
 *.md
