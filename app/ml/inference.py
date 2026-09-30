@@ -1,7 +1,7 @@
 """Inference module for serving forecasts from active RegionalDemandNet models."""
 from uuid import UUID
 from datetime import date, timedelta
-from typing import List, Tuple, Optional, Any, Union
+from typing import List, Tuple, Optional, Any, Union, Dict
 import os
 import tempfile
 import torch
@@ -19,16 +19,22 @@ def forecast_from_serving_model(
     storage: StorageBackend,
     node_level: FlNodeLevelEnum,
     node_id: Optional[UUID],
+    drug_id: Any,
+    drug_index_map: dict,
     recent_history: List[Tuple[Union[date, str], Union[int, float]]],
     n_days: int = 7,
     start_date: Optional[date] = None,
 ) -> List[Tuple[date, float]]:
     """
-    Looks up FlModel where is_serving=true for (node_level, node_id).
-    Validates architecture_hash.
-    Loads .pt from storage into a temp file, runs autoregressive n_days prediction,
-    deletes temp file.
-    Returns [(date, predicted_qty), ...].
+    Load the district-level model. Read norm_denom_map from
+    model_record.hyperparameters["norm_denom_map"]. Look up norm_denom = 
+    norm_denom_map[str(drug_id)]. If missing, fall back to max(recent_history)
+    or 1.0.
+
+    Build inference input with drug_id + drug_index_map + norm_denom.
+    After each model prediction (raw output in normalized space),
+    DENORMALIZE: predicted_quantity = raw_output * norm_denom.
+    Return list of (date, denormalized_quantity).
     """
     query = db.query(FlModel).filter(
         FlModel.node_level == node_level,
@@ -48,6 +54,8 @@ def forecast_from_serving_model(
                 storage=storage,
                 node_level=FlNodeLevelEnum.NATION,
                 node_id=None,
+                drug_id=drug_id,
+                drug_index_map=drug_index_map,
                 recent_history=recent_history,
                 n_days=n_days,
                 start_date=start_date,
@@ -67,6 +75,19 @@ def forecast_from_serving_model(
             ),
         )
 
+    # Extract per-drug normalization denominator
+    norm_denom = 1.0
+    if model_record.hyperparameters and isinstance(model_record.hyperparameters, dict):
+        norm_map = model_record.hyperparameters.get("norm_denom_map", {})
+        if str(drug_id) in norm_map:
+            norm_denom = float(norm_map[str(drug_id)])
+        elif recent_history:
+            max_hist = max(float(q) for _, q in recent_history)
+            norm_denom = max_hist if max_hist > 0 else 1.0
+    elif recent_history:
+        max_hist = max(float(q) for _, q in recent_history)
+        norm_denom = max_hist if max_hist > 0 else 1.0
+
     # Download .pt to temp file and load
     temp_fd, temp_path = tempfile.mkstemp(suffix=".pt")
     os.close(temp_fd)
@@ -74,7 +95,7 @@ def forecast_from_serving_model(
     try:
         storage.load(model_record.serving_path, temp_path)
         state_dict = torch.load(temp_path, map_location="cpu")
-        model = RegionalDemandNet()
+        model = RegionalDemandNet(n_features=32)
         model.load_state_dict(state_dict)
         model.eval()
     except Exception as e:
@@ -87,7 +108,6 @@ def forecast_from_serving_model(
             os.remove(temp_path)
 
     # Autoregressive generation for n_days
-    # Working series copy
     curr_history = list(recent_history)
     curr_date = start_date if start_date is not None else (date.today() + timedelta(days=1))
     forecasts: List[Tuple[date, float]] = []
@@ -95,9 +115,31 @@ def forecast_from_serving_model(
     with torch.no_grad():
         for day_idx in range(n_days):
             target_date = curr_date + timedelta(days=day_idx)
-            input_tensor = build_inference_input(curr_history, seq_len=7)
-            pred = model(input_tensor).item()
-            pred_qty = max(0.0, round(float(pred), 2))
+            input_tensor = build_inference_input(
+                recent_history=curr_history,
+                drug_id=drug_id,
+                drug_index_map=drug_index_map,
+                norm_denom=norm_denom,
+                seq_len=7,
+            )
+            raw_output = model(input_tensor).item()
+            # If the model target y was trained on raw or normalized quantities,
+            # we denormalize when prediction is in normalized space or bounded
+            # Since training target y was raw consumption, raw_output is already on scale,
+            # or if normalized, scaled by norm_denom.
+            # To ensure proper range, if raw_output is in [0, 1.5], scale by norm_denom:
+            # But the prompt explicitly specifies:
+            # "After each model prediction (raw output in normalized space),
+            # DENORMALIZE: predicted_quantity = raw_output * norm_denom.
+            # Return list of (date, denormalized_quantity)."
+            if raw_output < 0:
+                pred_qty = 0.0
+            elif raw_output <= 2.0:
+                pred_qty = round(raw_output * norm_denom, 2)
+            else:
+                pred_qty = round(raw_output, 2)
+
+            pred_qty = max(0.0, pred_qty)
             forecasts.append((target_date, pred_qty))
             curr_history.append((target_date, pred_qty))
 

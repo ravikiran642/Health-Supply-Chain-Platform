@@ -1,6 +1,5 @@
 """Local node training routine for Federated Learning."""
 from typing import Optional, Dict, Any, List, Tuple, Union
-from datetime import date
 import copy
 import torch
 import torch.nn as nn
@@ -12,36 +11,35 @@ from app.ml.features import build_feature_tensors
 
 def train_local_model(
     base_state_dict: Optional[Dict[str, torch.Tensor]],
-    consumption_series: List[Tuple[Any, Union[int, float]]],
+    drug_series_list: list,     # list of (drug_id, [(date, quantity), ...])
+    drug_index_map: dict,
     epochs: int = 15,
     batch_size: int = 32,
     lr: float = 0.005,
 ) -> Tuple[Dict[str, torch.Tensor], Dict[str, Any]]:
     """
-    Train local RegionalDemandNet model on node consumption series.
-    base_state_dict: warm start state dict (None = random initialization)
-    Returns: (updated_state_dict, metrics_dict)
-    - 80/20 train/val split
-    - Adam optimizer
-    - Early stop if validation loss doesn't improve for 3 epochs
+    Returns (state_dict, metrics) where metrics includes:
+      train_loss, val_loss, epochs_trained, sample_count,
+      norm_denom_map (dict: str(drug_id) -> float)
     """
-    model = RegionalDemandNet()
+    model = RegionalDemandNet(n_features=32)
     if base_state_dict is not None:
         model.load_state_dict(base_state_dict)
 
-    X, y = build_feature_tensors(consumption_series, seq_len=7)
+    X, y, norm_denom_map = build_feature_tensors(drug_series_list, drug_index_map, seq_len=7)
     n_samples = len(X)
 
+    serializable_norm_map = {str(k): float(v) for k, v in norm_denom_map.items()}
+
     if n_samples < 4:
-        # Too few samples to train meaningful split; return base or init model state
         return model.state_dict(), {
             "train_loss": 0.0,
             "val_loss": 0.0,
             "epochs_trained": 0,
             "sample_count": n_samples,
+            "norm_denom_map": serializable_norm_map,
         }
 
-    # 80/20 train/val split
     n_train = max(1, int(n_samples * 0.8))
     X_train, y_train = X[:n_train], y[:n_train]
     X_val, y_val = X[n_train:], y[n_train:]
@@ -82,7 +80,6 @@ def train_local_model(
 
         last_train_loss = total_train_loss / max(1, train_batches)
 
-        # Validation
         model.eval()
         total_val_loss = 0.0
         val_batches = 0
@@ -109,6 +106,7 @@ def train_local_model(
         "val_loss": round(best_val_loss if best_val_loss != float("inf") else last_train_loss, 4),
         "epochs_trained": actual_epochs,
         "sample_count": n_samples,
+        "norm_denom_map": serializable_norm_map,
     }
 
     return best_state_dict, metrics

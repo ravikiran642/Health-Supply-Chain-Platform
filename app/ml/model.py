@@ -5,7 +5,7 @@ import torch.nn as nn
 
 
 class RegionalDemandNet(nn.Module):
-    def __init__(self, n_features: int = 22, hidden_dim: int = 64):
+    def __init__(self, n_features: int = 32, hidden_dim: int = 64):
         super().__init__()
         self.lstm = nn.LSTM(
             input_size=n_features,
@@ -26,5 +26,5 @@ class RegionalDemandNet(nn.Module):
 
 
 ARCHITECTURE_HASH = hashlib.sha256(
-    b"RegionalDemandNet|LSTM|in=22|h=64|l=2|out=1"
+    b"RegionalDemandNet|LSTM|in=32|h=64|l=2|out=1"
 ).hexdigest()
