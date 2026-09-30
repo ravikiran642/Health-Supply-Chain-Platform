@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from fastapi.testclient import TestClient
 
+from app.models.user import User
 from app.models.fl import (
     DrugConsumptionHistory,
     FlRound,

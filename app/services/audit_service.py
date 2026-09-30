@@ -36,7 +36,7 @@ class AuditService:
             user_id=user_id,
             action=action.value if isinstance(action, AuditActionEnum) else str(action),
             resource_type=resource_type,
-            resource_id=resource_id,
+            resource_id=str(resource_id) if resource_id is not None else None,
             ip_address=ip_address,
             result=result,
             metadata=sanitized_meta

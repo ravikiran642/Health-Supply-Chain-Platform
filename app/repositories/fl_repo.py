@@ -1,9 +1,10 @@
 """Data access repository for Federated Learning entities."""
 from uuid import UUID
-from datetime import date
+from datetime import date, datetime
 from typing import Optional, List, Tuple
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
+from datetime import date as _date, datetime as _datetime
 
 from app.models.fl import (
     DrugConsumptionHistory,
@@ -126,11 +127,9 @@ class FlRepository:
 
     @staticmethod
     def rollup_dispense_transactions(db: Session, from_date: date, to_date: date) -> int:
-        """
-        Aggregate stock_transactions with transaction_type='dispense' into daily totals.
-        Upsert into drug_consumption_history. Idempotent.
-        """
-        # Group transactions by facility_id, drug_id, DATE(created_at)
+        from datetime import datetime, time
+        from sqlalchemy import cast, Date as SADate
+
         daily_tx = (
             db.query(
                 StockTransaction.facility_id,
@@ -140,8 +139,8 @@ class FlRepository:
             )
             .filter(
                 StockTransaction.transaction_type == TransactionTypeEnum.DISPENSE,
-                func.date(StockTransaction.created_at) >= from_date,
-                func.date(StockTransaction.created_at) <= to_date,
+                StockTransaction.created_at >= datetime.combine(from_date, time.min),
+                StockTransaction.created_at <= datetime.combine(to_date, time.max),
             )
             .group_by(
                 StockTransaction.facility_id,
@@ -153,12 +152,20 @@ class FlRepository:
 
         upsert_count = 0
         for row in daily_tx:
+            raw = row.tx_date
+            if isinstance(raw, str):
+                tx_date = datetime.fromisoformat(raw).date()
+            elif isinstance(raw, datetime):
+                tx_date = raw.date()
+            else:
+                tx_date = raw   # already a date
+
             rec = (
                 db.query(DrugConsumptionHistory)
                 .filter(
                     DrugConsumptionHistory.facility_id == row.facility_id,
                     DrugConsumptionHistory.drug_id == row.drug_id,
-                    DrugConsumptionHistory.consumption_date == row.tx_date,
+                    DrugConsumptionHistory.consumption_date == tx_date,
                 )
                 .first()
             )
@@ -166,7 +173,7 @@ class FlRepository:
                 rec = DrugConsumptionHistory(
                     facility_id=row.facility_id,
                     drug_id=row.drug_id,
-                    consumption_date=row.tx_date,
+                    consumption_date=tx_date,
                     quantity_consumed=int(row.qty_sum),
                 )
                 db.add(rec)
