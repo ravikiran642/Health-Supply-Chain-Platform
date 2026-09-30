@@ -58,5 +58,11 @@ class Settings(BaseSettings):
     RATE_LIMIT_LOGIN_PER_MINUTE: int
     RATE_LIMIT_REFRESH_PER_MINUTE: int
 
+    # Federated Learning & Model Storage
+    STORAGE_BACKEND: str = "local"
+    MODELS_DIR: str = "models"
+    GCS_BUCKET: str = ""
+    MODELS_ARCHIVE_KEEP_ROUNDS: int = 5
+
 
 settings = Settings()

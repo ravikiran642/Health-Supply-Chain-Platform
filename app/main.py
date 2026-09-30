@@ -11,6 +11,8 @@ from app.api.v1.users import router as users_router
 from app.api.v1.inventory import router as inventory_router
 from app.api.v1.beds import router as beds_router
 from app.api.v1.attendance import router as attendance_router
+from app.api.v1.fl import router as fl_router
+from app.api.v1.forecast import router as forecast_router
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -30,16 +32,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount Auth, User Management, Inventory, Beds & Attendance routers
+# Mount Auth, User Management, Inventory, Beds, Attendance, FL & Forecast routers
 app.include_router(auth_router, prefix=settings.API_V1_STR)
 app.include_router(users_router, prefix=settings.API_V1_STR)
 app.include_router(inventory_router, prefix=settings.API_V1_STR)
 app.include_router(beds_router, prefix=settings.API_V1_STR)
 app.include_router(attendance_router, prefix=settings.API_V1_STR)
+app.include_router(fl_router, prefix=settings.API_V1_STR)
+app.include_router(forecast_router, prefix=settings.API_V1_STR)
 
-# # Dual mount for direct root endpoints when API_V1_STR is non-empty
-# if settings.API_V1_STR:
-#     app.include_router(attendance_router, include_in_schema=False)
+# Dual mount for root path access if API_V1_STR is non-empty
+if settings.API_V1_STR:
+    app.include_router(fl_router, include_in_schema=False)
+    app.include_router(forecast_router, include_in_schema=False)
 
 
 @app.get("/health", tags=["System"])

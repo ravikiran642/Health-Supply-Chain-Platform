@@ -163,3 +163,46 @@ All seeded users share the password: `Test@123`
 | **District Approver** | Ranchi (JH)           | `district.approver.ran@hsc.gov.in` |
 | **PHC Operator**      | Patratu PHC (Ramgarh) | `phc.operator.pat_phc@hsc.gov.in`  |
 | **PHC Approver**      | Patratu PHC (Ramgarh) | `phc.approver.pat_phc@hsc.gov.in`  |
+
+---
+
+## Federated Learning Storage
+
+Two storage backends, selected via STORAGE_BACKEND env var:
+
+### Local development (Docker)
+```bash
+STORAGE_BACKEND=local
+MODELS_DIR=./models
+```
+Models persist in a Docker named volume so they survive container restarts.
+
+### Cloud Run production
+```bash
+STORAGE_BACKEND=gcs
+GCS_BUCKET=<project>-fl-models
+```
+
+One-time GCS setup:
+```bash
+gsutil mb -p <project> -l asia-south1 gs://<project>-fl-models
+gsutil iam ch serviceAccount:<SA>:objectAdmin gs://<project>-fl-models
+```
+
+Recommended lifecycle rule (auto-delete archive >90 days):
+```bash
+gsutil lifecycle set lifecycle.json gs://<project>-fl-models
+```
+
+Cloud Run deploy:
+```bash
+gcloud run deploy <service> \
+    --max-instances=1 \
+    --timeout=300 \
+    --set-env-vars=STORAGE_BACKEND=gcs,GCS_BUCKET=<project>-fl-models,...
+```
+
+Notes:
+- max-instances=1 prevents concurrent round races (advisory lock is a second layer of defense).
+- timeout=300s is enough for MVP scale; production with 700+ districts should move training to Cloud Run Jobs (24h runtime).
+

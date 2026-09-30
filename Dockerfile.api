@@ -16,7 +16,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Install python dependencies
 COPY requirements.txt .
-RUN pip install --upgrade pip && pip install -r requirements.txt
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir torch==2.2.0 --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir google-cloud-storage==2.16.0 && \
+    pip install -r requirements.txt
 
 # Copy source code
 COPY . .
