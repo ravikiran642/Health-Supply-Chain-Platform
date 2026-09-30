@@ -23,6 +23,14 @@ from app.models.attendance import (
     StaffAttendance,
     AttendanceStatusEnum,
 )
+from app.models.fl import (
+    DrugConsumptionHistory,
+    FlRound,
+    FlModel,
+    FlForecast,
+    FlRoundStatusEnum,
+    FlNodeLevelEnum,
+)
 
 __all__ = [
     "Base",
@@ -52,4 +60,10 @@ __all__ = [
     "BedTypeEnum",
     "StaffAttendance",
     "AttendanceStatusEnum",
+    "DrugConsumptionHistory",
+    "FlRound",
+    "FlModel",
+    "FlForecast",
+    "FlRoundStatusEnum",
+    "FlNodeLevelEnum",
 ]

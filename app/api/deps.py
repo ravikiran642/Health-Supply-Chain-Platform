@@ -14,6 +14,8 @@ from app.models.geography import Facility, District
 from app.models.audit import AuditActionEnum, AuditResultEnum
 from app.repositories.user_repo import UserRepository
 from app.services.audit_service import AuditService
+from typing import Callable
+from app.models.audit import AuditActionEnum, AuditResultEnum
 
 oauth2_scheme = HTTPBearer(auto_error=False)
 
@@ -354,3 +356,39 @@ def require_facility_scope(
         detail="Forbidden: facility outside your scope",
     )
 
+
+def require_any_permission(permission_names: list[str]) -> Callable:
+    """
+    Requires the user to have AT LEAST ONE of the listed permissions.
+    Super Admin bypasses the check. Logs audit event on failure.
+    """
+    def permission_checker(
+        request: Request,
+        user: User = Depends(get_current_user),
+        db: Session = Depends(get_db),
+    ) -> User:
+        if UserRepository.is_super_admin(user):
+            return user
+        if any(user.has_permission(p) for p in permission_names):
+            return user
+
+        AuditService.log_event(
+            db=db,
+            action=AuditActionEnum.PERMISSION_DENIED,
+            ip_address=get_client_ip(request),
+            result=AuditResultEnum.DENIED,
+            user_id=user.id,
+            resource_type="permission",
+            resource_id=",".join(permission_names),
+            metadata={
+                "required_any_of": permission_names,
+                "violation": "any_permission_check",
+            },
+        )
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Operation not permitted: requires any of {permission_names}",
+        )
+
+    return permission_checker

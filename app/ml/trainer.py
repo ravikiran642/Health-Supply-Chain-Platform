@@ -1,5 +1,5 @@
 """Local node training routine for Federated Learning."""
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Optional, Dict, Any, List, Tuple, Union
 from datetime import date
 import copy
 import torch

@@ -1,20 +1,18 @@
-version: "3.8"
-
 services:
   postgres:
     image: postgres:16-alpine
     container_name: hsc_postgres
     restart: always
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-health_supply_chain}
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -44,13 +42,33 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    env_file:
+      - .env
     environment:
+      # Override docker-network-specific values (must be service names, not localhost)
       - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-health_supply_chain}
+      - POSTGRES_SERVER=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_DB=${POSTGRES_DB:-health_supply_chain}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - SECRET_KEY=${SECRET_KEY}
-      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES}
-      - REFRESH_TOKEN_EXPIRE_DAYS=${REFRESH_TOKEN_EXPIRE_DAYS}
+      - REDIS_DB=0
+      - REDIS_PASSWORD=
+      - SECRET_KEY=${SECRET_KEY:-09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7}
+      - ALGORITHM=HS256
+      - ACCESS_TOKEN_EXPIRE_MINUTES=15
+      - REFRESH_TOKEN_EXPIRE_DAYS=7
+      - RATE_LIMIT_LOGIN_PER_MINUTE=10
+      - RATE_LIMIT_REFRESH_PER_MINUTE=20
+      - PROJECT_NAME=Health Supply Chain Platform
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - STORAGE_BACKEND=local
+      - MODELS_DIR=./models
+      - GCS_BUCKET=
+      - MODELS_ARCHIVE_KEEP_ROUNDS=5
     ports:
       - "8000:8000"
     command: >
@@ -62,6 +80,7 @@ services:
       - ./alembic:/app/alembic
       - ./tests:/app/tests
       - ./seed.py:/app/seed.py
+      - ./models:/app/models
 
 volumes:
   pgdata:
