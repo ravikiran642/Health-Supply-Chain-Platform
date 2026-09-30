@@ -23,6 +23,12 @@ from app.models.attendance import (
     StaffAttendance,
     AttendanceStatusEnum,
 )
+from app.models.fl import (
+    DrugConsumptionHistory,
+    FlRound,
+    FlModel,
+    FlForecast,
+)
 
 
 # Exact Permission Matrix Definition
@@ -231,6 +237,10 @@ ROLE_PERMISSIONS_MATRIX = {
 def reset_database(db):
     """Truncates all tables with cascade."""
     print("Resetting database...")
+    db.execute(text("TRUNCATE TABLE drug_consumption_history CASCADE;"))
+    db.execute(text("TRUNCATE TABLE fl_forecasts CASCADE;"))
+    db.execute(text("TRUNCATE TABLE fl_models CASCADE;"))
+    db.execute(text("TRUNCATE TABLE fl_rounds CASCADE;"))
     db.execute(text("TRUNCATE TABLE staff_attendance CASCADE;"))
     db.execute(text("TRUNCATE TABLE bed_occupancy_logs CASCADE;"))
     db.execute(text("TRUNCATE TABLE bed_inventories CASCADE;"))
@@ -602,8 +612,82 @@ def seed_database(reset: bool = False):
                         )
                     )
 
+        # 9. Seed 90 Days of Synthetic Consumption History
+        print("Seeding 90 days of synthetic drug consumption history...")
+        # Distinct facility and drug pairs from inventory batches
+        fac_drug_pairs = (
+            db.query(InventoryBatch.facility_id, InventoryBatch.drug_id)
+            .distinct()
+            .all()
+        )
+        base_rate_by_cat = {
+            DrugCategoryEnum.ANALGESIC: 40,
+            DrugCategoryEnum.ANTIBIOTIC: 25,
+            DrugCategoryEnum.ANTIMALARIAL: 20,
+            DrugCategoryEnum.ORS: 50,
+            DrugCategoryEnum.VACCINE: 15,
+            DrugCategoryEnum.OTHER: 20,
+        }
+
+        today = date.today()
+        # Preload drugs and facilities for lookup
+        drugs_map = {d.id: d for d in db.query(Drug).all()}
+        facilities_map_db = {f.id: f for f in db.query(Facility).all()}
+
+        import random
+        # Deterministic seed for reproducible testing
+        rng = random.Random(42)
+
+        for fac_id, drug_id in fac_drug_pairs:
+            fac = facilities_map_db.get(fac_id)
+            drug = drugs_map.get(drug_id)
+            if not fac or not drug:
+                continue
+
+            base_rate = base_rate_by_cat.get(drug.category, 20)
+
+            # District bias:
+            # Ramgarh (RAM): 1.5x malaria drug baseline (Artemether, Chloroquine)
+            # Ranchi (RAN): 1.5x ORS baseline
+            dist_code = fac.district.code if fac.district else ""
+            if dist_code == "RAM" and drug.category == DrugCategoryEnum.ANTIMALARIAL:
+                base_rate = int(base_rate * 1.5)
+            elif dist_code == "RAN" and drug.category == DrugCategoryEnum.ORS:
+                base_rate = int(base_rate * 1.5)
+
+            for day_offset in range(90, 0, -1):
+                cons_date = today - timedelta(days=day_offset)
+
+                # Weekday factor: Sat/Sun = 0.7x
+                is_weekend = cons_date.weekday() in (5, 6)
+                day_factor = 0.7 if is_weekend else 1.0
+
+                # Slow upward trend: +0.05 per day
+                trend = (90 - day_offset) * 0.05
+
+                # Noise: +-20%
+                noise = rng.uniform(0.8, 1.2)
+
+                qty = int((base_rate + trend) * day_factor * noise)
+                qty = max(1, qty)
+
+                existing_cons = (
+                    db.query(DrugConsumptionHistory)
+                    .filter_by(facility_id=fac_id, drug_id=drug_id, consumption_date=cons_date)
+                    .first()
+                )
+                if not existing_cons:
+                    db.add(
+                        DrugConsumptionHistory(
+                            facility_id=fac_id,
+                            drug_id=drug_id,
+                            consumption_date=cons_date,
+                            quantity_consumed=qty,
+                        )
+                    )
+
         db.commit()
-        print("Seeding successfully finished! All 24 users, geography, RBAC matrix, 10 drugs, sample batches, bed inventories, and staff attendance loaded.")
+        print("Seeding successfully finished! All 24 users, geography, RBAC matrix, 10 drugs, sample batches, bed inventories, staff attendance, and 90-day consumption history loaded.")
     except Exception as e:
         db.rollback()
         print(f"Error during seeding: {e}")
