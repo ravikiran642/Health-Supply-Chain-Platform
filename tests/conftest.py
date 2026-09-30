@@ -304,6 +304,60 @@ def seeded_db(db: Session) -> Session:
             )
         )
 
+    # 9. Seed 90 Days of Synthetic Drug Consumption History
+    import random
+    from datetime import timedelta
+    from app.models.fl import DrugConsumptionHistory
+    from app.models.drug import DrugCategoryEnum
+
+    rng = random.Random(42)
+    today = date.today()
+
+    base_rate_by_cat = {
+        DrugCategoryEnum.ANALGESIC: 40,
+        DrugCategoryEnum.ANTIBIOTIC: 25,
+        DrugCategoryEnum.ANTIMALARIAL: 20,
+        DrugCategoryEnum.ORS: 50,
+        DrugCategoryEnum.VACCINE: 15,
+        DrugCategoryEnum.OTHER: 20,
+    }
+
+    # Patratu PHC gets: Paracetamol, Amoxicillin, ORS (4 drugs with 3 unique)
+    # Kanke PHC gets: Paracetamol, Artemether-Lumefantrine, BCG Vaccine
+    fac_drug_map = [
+        (phc_patratu, ["Paracetamol 500mg", "Amoxicillin 500mg", "Oral Rehydration Salts (ORS)"]),
+        (phc_kanke, ["Paracetamol 500mg", "Artemether-Lumefantrine", "BCG Vaccine"]),
+    ]
+
+    for facility, drug_names in fac_drug_map:
+        for drug_name in drug_names:
+            drug = drug_objects[drug_name]
+            base_rate = base_rate_by_cat.get(drug.category, 20)
+
+            # District bias: Ramgarh 1.5x antimalarials; Ranchi 1.5x ORS
+            dist_code = facility.district.code if facility.district else ""
+            if dist_code == "RAM" and drug.category == DrugCategoryEnum.ANTIMALARIAL:
+                base_rate = int(base_rate * 1.5)
+            elif dist_code == "RAN" and drug.category == DrugCategoryEnum.ORS:
+                base_rate = int(base_rate * 1.5)
+
+            for day_offset in range(90, 0, -1):
+                cons_date = today - timedelta(days=day_offset)
+                is_weekend = cons_date.weekday() in (5, 6)
+                day_factor = 0.7 if is_weekend else 1.0
+                trend = (90 - day_offset) * 0.05
+                noise = rng.uniform(0.8, 1.2)
+                qty = max(1, int((base_rate + trend) * day_factor * noise))
+
+                db.add(DrugConsumptionHistory(
+                    facility_id=facility.id,
+                    drug_id=drug.id,
+                    consumption_date=cons_date,
+                    quantity_consumed=qty,
+                ))
+
+    db.flush()
+
     db.commit()
 
     return db
