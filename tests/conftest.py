@@ -28,6 +28,12 @@ from app.models.attendance import (
     StaffAttendance,
     AttendanceStatusEnum,
 )
+from app.models.fl import (
+    DrugConsumptionHistory,
+    FlRound,
+    FlModel,
+    FlForecast,
+)
 from seed import ROLE_PERMISSIONS_MATRIX
 
 # SQLite in-memory engine with static pool for testing
@@ -197,8 +203,19 @@ def seeded_db(db: Session) -> Session:
         roles=[role_objects["PHC Operator"]]
     )
 
+    # State Approver - Jharkhand
+    state_user = User(
+        email="state.approver.jh@hsc.gov.in",
+        password_hash=pwd_hash,
+        full_name="Jharkhand State Approver",
+        is_active=True,
+        scope_level=ScopeLevelEnum.STATE,
+        scope_id=state_jh.id,
+        roles=[role_objects["State Approver"]]
+    )
+
     db.add_all([
-        super_admin, ramgarh_user, ranchi_user, state_approver,
+        super_admin, state_user, ramgarh_user, ranchi_user, state_approver,
         phc_operator, phc_approver, phc_operator_kan,
     ])
     db.flush()
