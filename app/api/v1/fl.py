@@ -84,6 +84,31 @@ def get_fl_round_detail(
     return FlService.get_round_detail(db=db, round_id=round_id)
 
 
+@router.post(
+    "/rounds/{round_id}/abandon",
+    response_model=FlRoundDetailResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Mark a stuck RUNNING round as failed (Super Admin recovery)",
+)
+def abandon_fl_round(
+    round_id: UUID,
+    request: Request,
+    current_user: User = Depends(require_permission("manage_fl")),
+    db: Session = Depends(get_db),
+):
+    """
+    Manually abandon a stuck RUNNING round. Sets status=failed and
+    completes the audit trail. Super Admin only.
+    """
+    ip_addr = get_client_ip(request)
+    return FlService.abandon_round(
+        db=db,
+        round_id=round_id,
+        actor=current_user,
+        ip_address=ip_addr,
+    )
+
+
 @router.get(
     "/models/{model_id}",
     response_model=FlModelResponse,

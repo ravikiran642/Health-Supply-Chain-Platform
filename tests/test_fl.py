@@ -1,10 +1,10 @@
 """Comprehensive test suite for Federated Learning & Demand Forecasting module.
-Contains 25 tests:
+Contains 28 tests:
 - Data setup (2)
 - Model layer (4)
 - Round orchestration (10)
 - Storage layer (4)
-- API layer (5)
+- API layer (8)
 """
 from uuid import UUID
 from datetime import date, timedelta
@@ -516,3 +516,58 @@ def test_forecast_values_are_in_plausible_range(client: TestClient, seeded_db: S
 
     assert bcg_avg < pcm_avg
     assert bcg_avg < 50
+
+
+def test_abandon_stuck_round(client: TestClient, seeded_db: Session):
+    """Super Admin can abandon a RUNNING round; other roles cannot."""
+    # Create a stuck round manually
+    stuck = FlRound(
+        round_number=9988,
+        status=FlRoundStatusEnum.RUNNING,
+        started_at=date.today(),
+    )
+    seeded_db.add(stuck)
+    seeded_db.commit()
+
+    # Super Admin abandons it
+    admin_headers = get_auth_header(client, "superadmin@hsc.gov.in")
+    resp = client.post(
+        f"{API_PREFIX}/fl/rounds/{stuck.id}/abandon",
+        headers=admin_headers,
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "failed"
+    assert "abandoned" in (data["error_message"] or "").lower()
+
+    # Now a new round can be triggered (no more RUNNING orphan)
+    resp2 = client.post(f"{API_PREFIX}/fl/trigger-round", headers=admin_headers)
+    assert resp2.status_code == 201
+
+
+def test_abandon_non_running_round_rejected(client: TestClient, seeded_db: Session, fl_round_triggered: FlRound):
+    """Cannot abandon a COMPLETED round."""
+    admin_headers = get_auth_header(client, "superadmin@hsc.gov.in")
+    resp = client.post(
+        f"{API_PREFIX}/fl/rounds/{fl_round_triggered.id}/abandon",
+        headers=admin_headers,
+    )
+    assert resp.status_code == 400
+
+
+def test_abandon_requires_manage_fl(client: TestClient, seeded_db: Session):
+    """PHC Operator cannot abandon rounds."""
+    stuck = FlRound(
+        round_number=9987,
+        status=FlRoundStatusEnum.RUNNING,
+        started_at=date.today(),
+    )
+    seeded_db.add(stuck)
+    seeded_db.commit()
+
+    op_headers = get_auth_header(client, "phc.operator.pat@hsc.gov.in")
+    resp = client.post(
+        f"{API_PREFIX}/fl/rounds/{stuck.id}/abandon",
+        headers=op_headers,
+    )
+    assert resp.status_code == 403

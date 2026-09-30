@@ -86,22 +86,28 @@ class FlService:
         9. Audit logging
         """
         lock_key = "fl_round_trigger"
-        # Use postgres advisory lock if on postgres, else pass (e.g. SQLite tests)
         is_postgres = db.bind.dialect.name == "postgresql"
+
+        # ALWAYS check for a stuck RUNNING round in the DB first (any dialect)
+        running_round = db.query(FlRound).filter(
+            FlRound.status == FlRoundStatusEnum.RUNNING
+        ).first()
+        if running_round:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Round {running_round.round_number} is still marked RUNNING. "
+                    f"Investigate or abandon it before triggering a new round."
+                ),
+            )
+
+        # THEN check the advisory lock (Postgres only — SQLite tests skip this)
         if is_postgres:
             acquired = db.execute(
                 text("SELECT pg_try_advisory_lock(hashtext(:k))"),
                 {"k": lock_key},
             ).scalar()
             if not acquired:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="Another FL round is currently in progress",
-                )
-        else:
-            # Check for any currently running round in DB
-            running_round = db.query(FlRound).filter(FlRound.status == FlRoundStatusEnum.RUNNING).first()
-            if running_round:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail="Another FL round is currently in progress",
@@ -607,3 +613,45 @@ class FlService:
             generated_at=gen_at,
             drugs=drug_res,
         )
+
+    @staticmethod
+    def abandon_round(
+        db: Session,
+        round_id: UUID,
+        actor: User,
+        ip_address: str,
+    ) -> FlRoundDetailResponse:
+        """
+        Mark a RUNNING round as failed with an admin reason.
+        """
+        round_rec = FlRepository.get_round_by_id(db, round_id)
+        if not round_rec:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="FL round not found",
+            )
+        if round_rec.status != FlRoundStatusEnum.RUNNING:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Only RUNNING rounds can be abandoned (current status: {round_rec.status.value})",
+            )
+
+        round_rec.status = FlRoundStatusEnum.FAILED
+        round_rec.error_message = "Manually abandoned by admin"
+        round_rec.completed_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(round_rec)
+
+        AuditService.log_event(
+            db=db,
+            action="fl_round_abandoned",
+            ip_address=ip_address,
+            result=AuditResultEnum.SUCCESS,
+            user_id=actor.id,
+            resource_type="fl_round",
+            resource_id=str(round_rec.id),
+            metadata={"round_number": round_rec.round_number},
+        )
+        db.commit()
+
+        return FlService.get_round_detail(db, round_rec.id)
