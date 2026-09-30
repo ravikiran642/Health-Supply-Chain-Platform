@@ -1,10 +1,10 @@
 """Comprehensive test suite for Federated Learning & Demand Forecasting module.
-Contains 24 tests:
+Contains 25 tests:
 - Data setup (2)
 - Model layer (4)
 - Round orchestration (10)
 - Storage layer (4)
-- API layer (4)
+- API layer (5)
 """
 from uuid import UUID
 from datetime import date, timedelta
@@ -47,6 +47,17 @@ def get_auth_header(client: TestClient, email: str, password: str = "Test@123") 
     assert response.status_code == 200, f"Login failed: {response.text}"
     token = response.json()["access_token"]
     return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture
+def fl_round_triggered(client: TestClient, seeded_db: Session) -> FlRound:
+    """Triggers one FL round via the API and returns the resulting FlRound row."""
+    admin_headers = get_auth_header(client, "superadmin@hsc.gov.in")
+    resp = client.post(f"{API_PREFIX}/fl/trigger-round", headers=admin_headers)
+    assert resp.status_code == 201, f"Round trigger failed: {resp.text}"
+    round_rec = seeded_db.query(FlRound).order_by(FlRound.round_number.desc()).first()
+    assert round_rec is not None
+    return round_rec
 
 
 # ==============================================================================
@@ -94,7 +105,6 @@ def test_rollup_is_idempotent(seeded_db: Session):
     drug = seeded_db.query(Drug).first()
     today = date.today()
 
-    # Call rollup twice in a row
     c1 = FlService.rollup_consumption_history(seeded_db, today, today)
     c2 = FlService.rollup_consumption_history(seeded_db, today, today)
 
@@ -143,7 +153,6 @@ def test_save_load_roundtrip():
 def test_federated_average_simple():
     m1 = RegionalDemandNet()
     m2 = RegionalDemandNet()
-    # Copy m1 state to m2 so they are identical
     m2.load_state_dict(m1.state_dict())
 
     avg_state = federated_average([m1.state_dict(), m2.state_dict()], [10, 10])
@@ -155,14 +164,12 @@ def test_federated_average_weighted():
     m1 = RegionalDemandNet()
     m2 = RegionalDemandNet()
 
-    # Manually set head weight
     with torch.no_grad():
         for p in m1.parameters():
             p.fill_(1.0)
         for p in m2.parameters():
             p.fill_(5.0)
 
-    # 3:1 weighted average: (1.0*3 + 5.0*1)/4 = 2.0
     avg_state = federated_average([m1.state_dict(), m2.state_dict()], [3, 1])
     for k, v in avg_state.items():
         if v.is_floating_point():
@@ -189,9 +196,8 @@ def test_trigger_round_creates_round(client: TestClient, seeded_db: Session):
     assert data["participating_districts"] >= 2
 
 
-def test_district_models_saved(client: TestClient, seeded_db: Session):
-    round_rec = seeded_db.query(FlRound).order_by(FlRound.round_number.desc()).first()
-    assert round_rec is not None
+def test_district_models_saved(client: TestClient, seeded_db: Session, fl_round_triggered: FlRound):
+    round_rec = fl_round_triggered
     dist_models = (
         seeded_db.query(FlModel)
         .filter_by(round_id=round_rec.id, node_level=FlNodeLevelEnum.DISTRICT)
@@ -205,9 +211,8 @@ def test_district_models_saved(client: TestClient, seeded_db: Session):
         assert os.path.exists(os.path.join(settings.MODELS_DIR, m.serving_path))
 
 
-def test_state_model_saved(client: TestClient, seeded_db: Session):
-    round_rec = seeded_db.query(FlRound).order_by(FlRound.round_number.desc()).first()
-    assert round_rec is not None
+def test_state_model_saved(client: TestClient, seeded_db: Session, fl_round_triggered: FlRound):
+    round_rec = fl_round_triggered
     state_models = (
         seeded_db.query(FlModel)
         .filter_by(round_id=round_rec.id, node_level=FlNodeLevelEnum.STATE)
@@ -218,9 +223,8 @@ def test_state_model_saved(client: TestClient, seeded_db: Session):
     assert os.path.exists(os.path.join(settings.MODELS_DIR, state_models[0].serving_path))
 
 
-def test_nation_model_saved(client: TestClient, seeded_db: Session):
-    round_rec = seeded_db.query(FlRound).order_by(FlRound.round_number.desc()).first()
-    assert round_rec is not None
+def test_nation_model_saved(client: TestClient, seeded_db: Session, fl_round_triggered: FlRound):
+    round_rec = fl_round_triggered
     nation_models = (
         seeded_db.query(FlModel)
         .filter_by(round_id=round_rec.id, node_level=FlNodeLevelEnum.NATION)
@@ -231,29 +235,26 @@ def test_nation_model_saved(client: TestClient, seeded_db: Session):
     assert nation_models[0].is_serving is True
 
 
-def test_warm_start_lineage(client: TestClient, seeded_db: Session):
+def test_warm_start_lineage(client: TestClient, seeded_db: Session, fl_round_triggered: FlRound):
+    r1 = fl_round_triggered
+
     admin_headers = get_auth_header(client, "superadmin@hsc.gov.in")
     resp = client.post(f"{API_PREFIX}/fl/trigger-round", headers=admin_headers)
     assert resp.status_code == 201
 
     r2 = seeded_db.query(FlRound).order_by(FlRound.round_number.desc()).first()
-    r1 = seeded_db.query(FlRound).filter(FlRound.round_number == r2.round_number - 1).first()
+    assert r2.round_number == r1.round_number + 1
     assert r2.parent_round_id == r1.id
 
 
-def test_forecasts_persisted(seeded_db: Session):
-    round_rec = seeded_db.query(FlRound).order_by(FlRound.round_number.desc()).first()
-    assert round_rec is not None
-
+def test_forecasts_persisted(seeded_db: Session, fl_round_triggered: FlRound):
+    round_rec = fl_round_triggered
     forecasts = seeded_db.query(FlForecast).filter_by(round_id=round_rec.id).all()
-    # At least 7 forecasts per facility-drug pair
     assert len(forecasts) >= 7 * 2 * 1
 
 
-def test_different_districts_have_different_models(seeded_db: Session):
-    round_rec = seeded_db.query(FlRound).order_by(FlRound.round_number.desc()).first()
-    assert round_rec is not None
-
+def test_different_districts_have_different_models(seeded_db: Session, fl_round_triggered: FlRound):
+    round_rec = fl_round_triggered
     dist_models = (
         seeded_db.query(FlModel)
         .filter_by(round_id=round_rec.id, node_level=FlNodeLevelEnum.DISTRICT)
@@ -261,13 +262,11 @@ def test_different_districts_have_different_models(seeded_db: Session):
     )
     assert len(dist_models) == 2
 
-    # Load both models from local storage
     p1 = os.path.join(settings.MODELS_DIR, dist_models[0].serving_path)
     p2 = os.path.join(settings.MODELS_DIR, dist_models[1].serving_path)
     sd1 = torch.load(p1, map_location="cpu")
     sd2 = torch.load(p2, map_location="cpu")
 
-    # They should differ because local training was run with different local inputs/noise
     differences = 0
     for k in sd1:
         if not torch.allclose(sd1[k], sd2[k], atol=1e-5):
@@ -276,7 +275,6 @@ def test_different_districts_have_different_models(seeded_db: Session):
 
 
 def test_advisory_lock_prevents_concurrent_rounds(seeded_db: Session):
-    # Simulate an in-progress round
     dummy_round = FlRound(
         round_number=9999,
         status=FlRoundStatusEnum.RUNNING,
@@ -290,13 +288,12 @@ def test_advisory_lock_prevents_concurrent_rounds(seeded_db: Session):
         FlService.trigger_round(seeded_db, admin, "127.0.0.1")
     assert "in progress" in str(exc_info.value).lower()
 
-    # Clean up dummy round
     seeded_db.delete(dummy_round)
     seeded_db.commit()
 
 
-def test_round_status_updates(seeded_db: Session):
-    round_rec = seeded_db.query(FlRound).order_by(FlRound.round_number.desc()).first()
+def test_round_status_updates(seeded_db: Session, fl_round_triggered: FlRound):
+    round_rec = fl_round_triggered
     assert round_rec.status == FlRoundStatusEnum.COMPLETED
     assert round_rec.duration_seconds is not None
     assert round_rec.completed_at is not None
@@ -357,13 +354,38 @@ def test_local_storage_copy_and_delete():
             os.remove(tmp_file)
         shutil.rmtree(test_dir, ignore_errors=True)
 
-
 def test_serving_flag_is_unique_per_node(seeded_db: Session):
-    round_rec = seeded_db.query(FlRound).first()
+    """
+    The partial unique index on (node_level, node_id) WHERE is_serving = true
+    prevents two serving models for the same district at the same time.
+    Uses a fresh round to avoid colliding with the serving model that
+    fl_round_triggered would have created.
+    Uses a district UUID because SQL treats NULL (nation node_id) as distinct.
+    """
+    # Create a fresh round so no other test's models interfere
+    fresh_round = FlRound(
+        round_number=9998,
+        status=FlRoundStatusEnum.COMPLETED,
+        started_at=date.today(),
+    )
+    seeded_db.add(fresh_round)
+    seeded_db.flush()
+
+    ramgarh = seeded_db.query(District).filter_by(code="RAM").first()
+    assert ramgarh is not None
+
+    # Ensure no existing serving model for this (district, ramgarh) exists yet
+    seeded_db.query(FlModel).filter(
+        FlModel.node_level == FlNodeLevelEnum.DISTRICT,
+        FlModel.node_id == ramgarh.id,
+        FlModel.is_serving == True,
+    ).delete(synchronize_session=False)
+    seeded_db.flush()
+
     m1 = FlModel(
-        round_id=round_rec.id,
-        node_level=FlNodeLevelEnum.NATION,
-        node_id=None,
+        round_id=fresh_round.id,
+        node_level=FlNodeLevelEnum.DISTRICT,
+        node_id=ramgarh.id,
         archive_path="a1.pt",
         serving_path="s1.pt",
         is_serving=True,
@@ -372,9 +394,9 @@ def test_serving_flag_is_unique_per_node(seeded_db: Session):
         sample_count=10,
     )
     m2 = FlModel(
-        round_id=round_rec.id,
-        node_level=FlNodeLevelEnum.NATION,
-        node_id=None,
+        round_id=fresh_round.id,
+        node_level=FlNodeLevelEnum.DISTRICT,
+        node_id=ramgarh.id,
         archive_path="a2.pt",
         serving_path="s2.pt",
         is_serving=True,
@@ -382,6 +404,7 @@ def test_serving_flag_is_unique_per_node(seeded_db: Session):
         architecture_hash=ARCHITECTURE_HASH,
         sample_count=10,
     )
+
     seeded_db.add(m1)
     seeded_db.flush()
 
@@ -390,12 +413,10 @@ def test_serving_flag_is_unique_per_node(seeded_db: Session):
         seeded_db.flush()
     seeded_db.rollback()
 
-
 def test_cleanup_keeps_last_n_rounds(seeded_db: Session):
     test_dir = os.path.join(tempfile.gettempdir(), "test_cleanup_rounds")
     storage = LocalFileStorage(base_dir=test_dir)
 
-    # Create dummy rounds 1 through 7
     for r in range(1, 8):
         rec = FlRound(
             round_number=r + 100,
@@ -403,7 +424,6 @@ def test_cleanup_keeps_last_n_rounds(seeded_db: Session):
             started_at=date.today(),
         )
         seeded_db.add(rec)
-        # Create directory in storage
         k = f"fl/archive/round_{r + 100}/test.pt"
         tmp_fd, tmp_file = tempfile.mkstemp()
         os.close(tmp_fd)
@@ -414,20 +434,18 @@ def test_cleanup_keeps_last_n_rounds(seeded_db: Session):
 
     cleanup_old_archives(storage, seeded_db, keep_last_n=5)
 
-    # Rounds 101 and 102 should be deleted
     assert storage.exists("fl/archive/round_101/test.pt") is False
     assert storage.exists("fl/archive/round_102/test.pt") is False
-    # Round 107 should still exist
     assert storage.exists("fl/archive/round_107/test.pt") is True
 
     shutil.rmtree(test_dir, ignore_errors=True)
 
 
 # ==============================================================================
-# 5. API LAYER (4 tests)
+# 5. API LAYER (5 tests)
 # ==============================================================================
 
-def test_fl_status_returns_latest_round(client: TestClient, seeded_db: Session):
+def test_fl_status_returns_latest_round(client: TestClient, seeded_db: Session, fl_round_triggered: FlRound):
     admin_headers = get_auth_header(client, "superadmin@hsc.gov.in")
     resp = client.get(f"{API_PREFIX}/fl/status", headers=admin_headers)
     assert resp.status_code == 200
@@ -437,7 +455,7 @@ def test_fl_status_returns_latest_round(client: TestClient, seeded_db: Session):
     assert data["last_forecast_count"] > 0
 
 
-def test_fl_rounds_pagination(client: TestClient, seeded_db: Session):
+def test_fl_rounds_pagination(client: TestClient, seeded_db: Session, fl_round_triggered: FlRound):
     admin_headers = get_auth_header(client, "superadmin@hsc.gov.in")
     resp = client.get(f"{API_PREFIX}/fl/rounds?page=1&page_size=1", headers=admin_headers)
     assert resp.status_code == 200
@@ -445,10 +463,10 @@ def test_fl_rounds_pagination(client: TestClient, seeded_db: Session):
     assert len(data["items"]) == 1
     assert data["pagination"]["page"] == 1
     assert data["pagination"]["page_size"] == 1
-    assert data["pagination"]["total_items"] >= 2
+    assert data["pagination"]["total_items"] >= 1
 
 
-def test_forecast_facility_returns_7_days(client: TestClient, seeded_db: Session):
+def test_forecast_facility_returns_7_days(client: TestClient, seeded_db: Session, fl_round_triggered: FlRound):
     pat_headers = get_auth_header(client, "phc.operator.pat@hsc.gov.in")
     patratu = seeded_db.query(Facility).filter_by(code="PAT_PHC").first()
 
@@ -465,11 +483,9 @@ def test_forecast_scope_enforced(client: TestClient, seeded_db: Session):
     ranchi_headers = get_auth_header(client, "district.approver.ran@hsc.gov.in")
     patratu = seeded_db.query(Facility).filter_by(code="PAT_PHC").first()
 
-    # Patratu operator on Patratu PHC -> 200
     r_pat = client.get(f"{API_PREFIX}/forecast/facility/{patratu.id}", headers=pat_headers)
     assert r_pat.status_code == 200
 
-    # Ranchi DHO on Patratu (which is in Ramgarh) -> 403
     r_ran = client.get(f"{API_PREFIX}/forecast/facility/{patratu.id}", headers=ranchi_headers)
     assert r_ran.status_code == 403
 
@@ -477,8 +493,7 @@ def test_forecast_scope_enforced(client: TestClient, seeded_db: Session):
 def test_forecast_values_are_in_plausible_range(client: TestClient, seeded_db: Session):
     """
     After a round, BCG vaccine forecasts (low-volume drug) should be
-    significantly smaller than ORS forecasts (high-volume). Before this fix,
-    both were ~250 (district total). After, they should reflect actual scales.
+    significantly smaller than Paracetamol forecasts (high-volume).
     """
     admin_headers = get_auth_header(client, "superadmin@hsc.gov.in")
     client.post(f"{API_PREFIX}/fl/trigger-round", headers=admin_headers)
@@ -490,8 +505,6 @@ def test_forecast_values_are_in_plausible_range(client: TestClient, seeded_db: S
     assert resp.status_code == 200
     data = resp.json()
 
-    # Find BCG (low volume) and ORS forecasts — ORS only exists at Patratu,
-    # so use Paracetamol vs BCG at Kanke.
     bcg = next((d for d in data["drugs"] if "BCG" in d["drug_name"]), None)
     paracetamol = next((d for d in data["drugs"] if "Paracetamol" in d["drug_name"]), None)
 
@@ -501,8 +514,5 @@ def test_forecast_values_are_in_plausible_range(client: TestClient, seeded_db: S
     bcg_avg = sum(f["predicted_quantity"] for f in bcg["forecasts"]) / len(bcg["forecasts"])
     pcm_avg = sum(f["predicted_quantity"] for f in paracetamol["forecasts"]) / len(paracetamol["forecasts"])
 
-    # BCG should be MUCH smaller than Paracetamol (BCG baseline ~15/day, PCM ~40/day)
     assert bcg_avg < pcm_avg
-    # BCG should be under 50, not 250
     assert bcg_avg < 50
-

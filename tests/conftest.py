@@ -1,4 +1,5 @@
 import pytest
+import random
 from typing import Generator
 from datetime import date, timedelta
 from fastapi.testclient import TestClient
@@ -271,11 +272,6 @@ def seeded_db(db: Session) -> Session:
         db.add(bed_obj)
 
     # 8. Seed 5 Days of Staff Attendance for Patratu PHC (Operator + Approver)
-    # Day-4: both present
-    # Day-3: both present
-    # Day-2: operator present, approver on leave
-    # Day-1: both present
-    # Today: both present
     attendance_schedule = [
         (today - timedelta(days=4), AttendanceStatusEnum.PRESENT, AttendanceStatusEnum.PRESENT),
         (today - timedelta(days=3), AttendanceStatusEnum.PRESENT, AttendanceStatusEnum.PRESENT),
@@ -305,13 +301,8 @@ def seeded_db(db: Session) -> Session:
         )
 
     # 9. Seed 90 Days of Synthetic Drug Consumption History
-    import random
-    from datetime import timedelta
-    from app.models.fl import DrugConsumptionHistory
-    from app.models.drug import DrugCategoryEnum
-
+    # NOTE: all imports used here are at module level (no local imports).
     rng = random.Random(42)
-    today = date.today()
 
     base_rate_by_cat = {
         DrugCategoryEnum.ANALGESIC: 40,
@@ -322,7 +313,7 @@ def seeded_db(db: Session) -> Session:
         DrugCategoryEnum.OTHER: 20,
     }
 
-    # Patratu PHC gets: Paracetamol, Amoxicillin, ORS (4 drugs with 3 unique)
+    # Patratu PHC gets: Paracetamol, Amoxicillin, ORS
     # Kanke PHC gets: Paracetamol, Artemether-Lumefantrine, BCG Vaccine
     fac_drug_map = [
         (phc_patratu, ["Paracetamol 500mg", "Amoxicillin 500mg", "Oral Rehydration Salts (ORS)"]),
