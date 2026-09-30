@@ -1,8 +1,10 @@
 import sys
 import uuid
+import random
 from datetime import date, timedelta
 from sqlalchemy import text
 from app.core.database import SessionLocal, Base, engine
+from app.core.config import settings
 from app.core.security import get_password_hash
 from app.models.geography import State, District, Facility, FacilityTypeEnum
 from app.models.rbac import Role, Permission
@@ -29,6 +31,11 @@ from app.models.fl import (
     FlModel,
     FlForecast,
 )
+
+
+def log(msg: str) -> None:
+    """Prefix all seed output so Cloud Run Job logs can be filtered."""
+    print(f"[SEED] {msg}", flush=True)
 
 
 # Exact Permission Matrix Definition
@@ -82,28 +89,28 @@ ROLE_PERMISSIONS_MATRIX = {
         "create_inventory",
         "update_inventory",
         "dispense_medicine",
-        "write_off_stock",           # instead of delete
+        "write_off_stock",
         "report_expiry",
 
         # Stock requests
         "request_stock",
         "report_stock_out",
 
-        # Beds (CRUD, but delete = deactivate)
+        # Beds
         "view_beds",
-        "update_bed_occupancy",      # renamed from update_beds
-        "add_bed",                   # for ward additions
-        "deactivate_bed",            # for maintenance/removal
+        "update_bed_occupancy",
+        "add_bed",
+        "deactivate_bed",
 
-        # Staff Attendance (CRUD, but delete = correct)
+        # Staff Attendance
         "view_attendance",
         "mark_attendance",
-        "correct_attendance",        # instead of delete
+        "correct_attendance",
 
-        # Patient (CRUD, but delete = deactivate)
+        # Patient
         "create_patient",
-        "view_patient_limited",      # basic info only
-        "update_patient",            # demographics
+        "view_patient_limited",
+        "update_patient",
         "view_patient_history",
         "deactivate_patient",
 
@@ -120,15 +127,15 @@ ROLE_PERMISSIONS_MATRIX = {
         "change_own_password",
 
         # approver-specific
-        "update_patient_clinical",       # MO-specific
+        "update_patient_clinical",
         "approve_phc_request",
         "approve_redistribution_to_phc",
         "request_redistribution",
         "cancel_redistribution",
         "dismiss_alert",
         "configure_alert_thresholds",
-        "view_staff",                    # see full staff directory
-        "correct_attendance",            # already in operator, keep
+        "view_staff",
+        "correct_attendance",
         "view_reports",
     ],
     "District Approver": [
@@ -159,7 +166,7 @@ ROLE_PERMISSIONS_MATRIX = {
         "report_expiry",
         "view_state",
         "view_state_forecast",
-        "view_district",              # can drill down to districts
+        "view_district",
         "view_redistribution",
         "approve_inter_district_transfer",
         "escalate_to_national",
@@ -181,8 +188,8 @@ ROLE_PERMISSIONS_MATRIX = {
         "report_expiry",
         "view_national",
         "view_national_forecast",
-        "view_state",                 # can drill down to states
-        "view_district",              # can drill down further
+        "view_state",
+        "view_district",
         "approve_inter_state_transfer",
         "view_alerts",
         "view_fl_model_status",
@@ -235,8 +242,8 @@ ROLE_PERMISSIONS_MATRIX = {
 
 
 def reset_database(db):
-    """Truncates all tables with cascade."""
-    print("Resetting database...")
+    """Truncates all tables with cascade. Only call in development."""
+    log("Truncating all tables (reset mode)...")
     db.execute(text("TRUNCATE TABLE drug_consumption_history CASCADE;"))
     db.execute(text("TRUNCATE TABLE fl_forecasts CASCADE;"))
     db.execute(text("TRUNCATE TABLE fl_models CASCADE;"))
@@ -258,17 +265,38 @@ def reset_database(db):
     db.execute(text("TRUNCATE TABLE districts CASCADE;"))
     db.execute(text("TRUNCATE TABLE states CASCADE;"))
     db.commit()
-    print("Database reset complete.")
+    log("Database reset complete.")
 
 
-def seed_database(reset: bool = False):
+def seed_database(reset: bool = False, force: bool = False):
+    """
+    Seed the database with default data.
+
+    - Idempotent: safe to run multiple times (skips existing rows).
+    - reset=True truncates everything first — REFUSED in production unless force=True.
+    - force=True allows reset even in production (dangerous, requires explicit intent).
+    """
+    if reset:
+        if settings.ENVIRONMENT == "production" and not force:
+            log(
+                "REFUSING --reset in production. This would truncate users, "
+                "audit logs, and all operational data."
+            )
+            log("If you really need to reset in production, pass --force-reset as well.")
+            sys.exit(1)
+        if settings.ENVIRONMENT == "production" and force:
+            log("WARNING: Running --reset --force in production. This is destructive.")
+            log("Waiting 5 seconds before proceeding. Ctrl+C to abort.")
+            import time
+            time.sleep(5)
+
     db = SessionLocal()
     try:
         if reset:
             reset_database(db)
 
         # 1. Seed Permissions
-        print("Seeding permissions...")
+        log("Seeding permissions...")
         all_perm_names = set()
         for perms in ROLE_PERMISSIONS_MATRIX.values():
             all_perm_names.update(perms)
@@ -286,7 +314,7 @@ def seed_database(reset: bool = False):
             perm_objects[perm_name] = existing_perm
 
         # 2. Seed Roles and Link Role Permissions
-        print("Seeding roles and mapping permissions...")
+        log("Seeding roles and mapping permissions...")
         role_objects = {}
         for role_name, perm_list in ROLE_PERMISSIONS_MATRIX.items():
             existing_role = db.query(Role).filter_by(name=role_name).first()
@@ -298,13 +326,12 @@ def seed_database(reset: bool = False):
                 db.add(existing_role)
                 db.flush()
 
-            # Assign permissions
             existing_role.permissions = [perm_objects[p] for p in perm_list]
             db.flush()
             role_objects[role_name] = existing_role
 
-        # 3. Seed Geographic Hierarchy (2 States, 4 Districts, 8 PHCs)
-        print("Seeding geographic hierarchy (States, Districts, PHCs)...")
+        # 3. Seed Geographic Hierarchy
+        log("Seeding geographic hierarchy (2 states, 4 districts, 8 PHCs)...")
         geo_data = {
             "JH": {
                 "name": "Jharkhand",
@@ -383,7 +410,7 @@ def seed_database(reset: bool = False):
         default_pwd_hash = get_password_hash("Test@123")
 
         # 4. Seed Users
-        print("Seeding Users (24 total)...")
+        log("Seeding users (24 total)...")
         # 1x Super Admin
         if not db.query(User).filter_by(email="superadmin@hsc.gov.in").first():
             admin = User(
@@ -410,7 +437,7 @@ def seed_database(reset: bool = False):
             )
             db.add(nat)
 
-        # 2x State Approvers (one per state)
+        # 2x State Approvers
         for st_code, st_obj in states_map.items():
             email = f"state.approver.{st_code.lower()}@hsc.gov.in"
             if not db.query(User).filter_by(email=email).first():
@@ -425,7 +452,7 @@ def seed_database(reset: bool = False):
                 )
                 db.add(st_user)
 
-        # 4x District Approvers (one per district)
+        # 4x District Approvers
         for dist_code, dist_obj in districts_map.items():
             email = f"district.approver.{dist_code.lower()}@hsc.gov.in"
             if not db.query(User).filter_by(email=email).first():
@@ -440,9 +467,8 @@ def seed_database(reset: bool = False):
                 )
                 db.add(dist_user)
 
-        # 8x PHC Operators and 8x PHC Approvers (one per PHC each)
+        # 8x PHC Operators + 8x PHC Approvers
         for fac_code, fac_obj in facilities_map.items():
-            # PHC Operator
             op_email = f"phc.operator.{fac_code.lower()}@hsc.gov.in"
             if not db.query(User).filter_by(email=op_email).first():
                 op_user = User(
@@ -456,7 +482,6 @@ def seed_database(reset: bool = False):
                 )
                 db.add(op_user)
 
-            # PHC Approver
             appr_email = f"phc.approver.{fac_code.lower()}@hsc.gov.in"
             if not db.query(User).filter_by(email=appr_email).first():
                 appr_user = User(
@@ -470,8 +495,8 @@ def seed_database(reset: bool = False):
                 )
                 db.add(appr_user)
 
-        # 5. Seed 10 Drugs Master Catalog
-        print("Seeding 10 drugs master catalog...")
+        # 5. Seed Drugs Master Catalog
+        log("Seeding 10 drugs master catalog...")
         drugs_data = [
             ("Paracetamol 500mg", DrugCategoryEnum.ANALGESIC, DrugUnitEnum.TABLET),
             ("Amoxicillin 500mg", DrugCategoryEnum.ANTIBIOTIC, DrugUnitEnum.CAPSULE),
@@ -493,8 +518,8 @@ def seed_database(reset: bool = False):
                 db.flush()
             drug_objects[drug_name] = d
 
-        # 6. Seed Sample Batches for 2 PHCs (Patratu + Kanke)
-        print("Seeding sample batches for Patratu PHC and Kanke PHC...")
+        # 6. Seed Sample Batches for 2 PHCs
+        log("Seeding sample inventory batches (Patratu + Kanke)...")
         patratu_fac = facilities_map.get("PAT_PHC")
         kanke_fac = facilities_map.get("KAN_PHC")
         today = date.today()
@@ -529,8 +554,8 @@ def seed_database(reset: bool = False):
                 )
                 db.add(b)
 
-        # 7. Seed Sample Bed Inventories for 2 PHCs (Patratu + Kanke)
-        print("Seeding sample bed inventories for Patratu PHC and Kanke PHC...")
+        # 7. Seed Sample Bed Inventories
+        log("Seeding sample bed inventories (Patratu + Kanke)...")
         sample_beds = []
         if patratu_fac:
             sample_beds.extend([
@@ -559,20 +584,13 @@ def seed_database(reset: bool = False):
                 )
                 db.add(bed_obj)
 
-        # 8. Seed 5 Days of Staff Attendance for Patratu PHC (Operator + Approver)
-        print("Seeding 5 days of staff attendance for Patratu PHC...")
+        # 8. Seed 5 Days of Staff Attendance
+        log("Seeding 5 days of staff attendance for Patratu PHC...")
         pat_op = db.query(User).filter_by(email="phc.operator.pat_phc@hsc.gov.in").first()
         pat_appr = db.query(User).filter_by(email="phc.approver.pat_phc@hsc.gov.in").first()
         superadmin = db.query(User).filter_by(email="superadmin@hsc.gov.in").first()
 
         if patratu_fac and pat_op and pat_appr and superadmin:
-            today = date.today()
-            # 5 days: Day-4, Day-3, Day-2, Day-1, Today
-            # Day-4: both present
-            # Day-3: both present
-            # Day-2: operator present, approver on leave
-            # Day-1: both present
-            # Today: both present
             attendance_schedule = [
                 (today - timedelta(days=4), AttendanceStatusEnum.PRESENT, AttendanceStatusEnum.PRESENT),
                 (today - timedelta(days=3), AttendanceStatusEnum.PRESENT, AttendanceStatusEnum.PRESENT),
@@ -582,7 +600,6 @@ def seed_database(reset: bool = False):
             ]
 
             for att_date, op_status, appr_status in attendance_schedule:
-                # Operator
                 existing_op_att = db.query(StaffAttendance).filter_by(
                     user_id=pat_op.id, attendance_date=att_date
                 ).first()
@@ -597,7 +614,6 @@ def seed_database(reset: bool = False):
                         )
                     )
 
-                # Approver
                 existing_appr_att = db.query(StaffAttendance).filter_by(
                     user_id=pat_appr.id, attendance_date=att_date
                 ).first()
@@ -612,9 +628,8 @@ def seed_database(reset: bool = False):
                         )
                     )
 
-        # 9. Seed 90 Days of Synthetic Consumption History
-        print("Seeding 90 days of synthetic drug consumption history...")
-        # Distinct facility and drug pairs from inventory batches
+        # 9. Seed 90 Days of Synthetic Drug Consumption History
+        log("Seeding 90 days of synthetic drug consumption history...")
         fac_drug_pairs = (
             db.query(InventoryBatch.facility_id, InventoryBatch.drug_id)
             .distinct()
@@ -629,12 +644,9 @@ def seed_database(reset: bool = False):
             DrugCategoryEnum.OTHER: 20,
         }
 
-        today = date.today()
-        # Preload drugs and facilities for lookup
         drugs_map = {d.id: d for d in db.query(Drug).all()}
         facilities_map_db = {f.id: f for f in db.query(Facility).all()}
 
-        import random
         # Deterministic seed for reproducible testing
         rng = random.Random(42)
 
@@ -647,7 +659,7 @@ def seed_database(reset: bool = False):
             base_rate = base_rate_by_cat.get(drug.category, 20)
 
             # District bias:
-            # Ramgarh (RAM): 1.5x malaria drug baseline (Artemether, Chloroquine)
+            # Ramgarh (RAM): 1.5x malaria drug baseline
             # Ranchi (RAN): 1.5x ORS baseline
             dist_code = fac.district.code if fac.district else ""
             if dist_code == "RAM" and drug.category == DrugCategoryEnum.ANTIMALARIAL:
@@ -657,19 +669,11 @@ def seed_database(reset: bool = False):
 
             for day_offset in range(90, 0, -1):
                 cons_date = today - timedelta(days=day_offset)
-
-                # Weekday factor: Sat/Sun = 0.7x
                 is_weekend = cons_date.weekday() in (5, 6)
                 day_factor = 0.7 if is_weekend else 1.0
-
-                # Slow upward trend: +0.05 per day
                 trend = (90 - day_offset) * 0.05
-
-                # Noise: +-20%
                 noise = rng.uniform(0.8, 1.2)
-
-                qty = int((base_rate + trend) * day_factor * noise)
-                qty = max(1, qty)
+                qty = max(1, int((base_rate + trend) * day_factor * noise))
 
                 existing_cons = (
                     db.query(DrugConsumptionHistory)
@@ -687,10 +691,14 @@ def seed_database(reset: bool = False):
                     )
 
         db.commit()
-        print("Seeding successfully finished! All 24 users, geography, RBAC matrix, 10 drugs, sample batches, bed inventories, staff attendance, and 90-day consumption history loaded.")
+        log(
+            "Seeding successfully finished! 24 users, geography, RBAC matrix, "
+            "10 drugs, inventory batches, beds, attendance, and 90-day consumption "
+            "history loaded."
+        )
     except Exception as e:
         db.rollback()
-        print(f"Error during seeding: {e}")
+        log(f"ERROR during seeding: {e}")
         raise
     finally:
         db.close()
@@ -698,4 +706,5 @@ def seed_database(reset: bool = False):
 
 if __name__ == "__main__":
     reset_flag = "--reset" in sys.argv
-    seed_database(reset=reset_flag)
+    force_flag = "--force-reset" in sys.argv
+    seed_database(reset=reset_flag, force=force_flag)

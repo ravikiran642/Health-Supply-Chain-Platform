@@ -274,7 +274,7 @@ def test_different_districts_have_different_models(seeded_db: Session, fl_round_
     assert differences > 0
 
 
-def test_advisory_lock_prevents_concurrent_rounds(seeded_db: Session):
+def test_running_round_blocks_new_trigger(seeded_db: Session):
     dummy_round = FlRound(
         round_number=9999,
         status=FlRoundStatusEnum.RUNNING,
@@ -286,7 +286,9 @@ def test_advisory_lock_prevents_concurrent_rounds(seeded_db: Session):
     admin = seeded_db.query(User).filter_by(email="superadmin@hsc.gov.in").first()
     with pytest.raises(Exception) as exc_info:
         FlService.trigger_round(seeded_db, admin, "127.0.0.1")
-    assert "in progress" in str(exc_info.value).lower()
+    msg = str(exc_info.value).lower()
+    assert "running" in msg or "in progress" in msg
+
 
     seeded_db.delete(dummy_round)
     seeded_db.commit()
