@@ -110,17 +110,17 @@ def test_rollup_is_idempotent(seeded_db: Session):
 # ==============================================================================
 
 def test_model_forward_shape():
-    model = RegionalDemandNet(n_features=22, hidden_dim=64)
+    model = RegionalDemandNet(n_features=32, hidden_dim=64)
     model.eval()
-    x = torch.randn(4, 7, 22)
+    x = torch.randn(4, 7, 32)
     out = model(x)
     assert out.shape == (4, 1)
 
 
 def test_save_load_roundtrip():
-    model = RegionalDemandNet(n_features=22, hidden_dim=64)
+    model = RegionalDemandNet(n_features=32, hidden_dim=64)
     model.eval()
-    x = torch.randn(2, 7, 22)
+    x = torch.randn(2, 7, 32)
     with torch.no_grad():
         orig_pred = model(x)
 
@@ -128,7 +128,7 @@ def test_save_load_roundtrip():
     os.close(tmp_fd)
     try:
         torch.save(model.state_dict(), tmp_path)
-        loaded_model = RegionalDemandNet(n_features=22, hidden_dim=64)
+        loaded_model = RegionalDemandNet(n_features=32, hidden_dim=64)
         loaded_model.load_state_dict(torch.load(tmp_path, map_location="cpu"))
         loaded_model.eval()
         with torch.no_grad():
@@ -471,3 +471,37 @@ def test_forecast_scope_enforced(client: TestClient, seeded_db: Session):
     # Ranchi DHO on Patratu (which is in Ramgarh) -> 403
     r_ran = client.get(f"{API_PREFIX}/forecast/facility/{patratu.id}", headers=ranchi_headers)
     assert r_ran.status_code == 403
+
+
+def test_forecast_values_are_in_plausible_range(client: TestClient, seeded_db: Session):
+    """
+    After a round, BCG vaccine forecasts (low-volume drug) should be
+    significantly smaller than ORS forecasts (high-volume). Before this fix,
+    both were ~250 (district total). After, they should reflect actual scales.
+    """
+    admin_headers = get_auth_header(client, "superadmin@hsc.gov.in")
+    client.post(f"{API_PREFIX}/fl/trigger-round", headers=admin_headers)
+
+    kanke = seeded_db.query(Facility).filter_by(code="KAN_PHC").first()
+    kanke_headers = get_auth_header(client, "phc.operator.kan@hsc.gov.in")
+
+    resp = client.get(f"{API_PREFIX}/forecast/facility/{kanke.id}", headers=kanke_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    # Find BCG (low volume) and ORS forecasts — ORS only exists at Patratu,
+    # so use Paracetamol vs BCG at Kanke.
+    bcg = next((d for d in data["drugs"] if "BCG" in d["drug_name"]), None)
+    paracetamol = next((d for d in data["drugs"] if "Paracetamol" in d["drug_name"]), None)
+
+    assert bcg is not None
+    assert paracetamol is not None
+
+    bcg_avg = sum(f["predicted_quantity"] for f in bcg["forecasts"]) / len(bcg["forecasts"])
+    pcm_avg = sum(f["predicted_quantity"] for f in paracetamol["forecasts"]) / len(paracetamol["forecasts"])
+
+    # BCG should be MUCH smaller than Paracetamol (BCG baseline ~15/day, PCM ~40/day)
+    assert bcg_avg < pcm_avg
+    # BCG should be under 50, not 250
+    assert bcg_avg < 50
+

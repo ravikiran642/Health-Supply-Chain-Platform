@@ -69,6 +69,38 @@ class FlRepository:
         return [(r.consumption_date, r.quantity_consumed) for r in records]
 
     @staticmethod
+    def get_district_drug_consumption_history(
+        db: Session, district_id: UUID, drug_id: UUID, from_date: Optional[date] = None
+    ) -> List[Tuple[date, int]]:
+        """
+        Join DrugConsumptionHistory with Facility to filter by district AND drug.
+        Sum daily consumption across facilities within the district for this specific drug.
+        Returns list of (date, int) sorted ascending.
+        """
+        from app.models.geography import Facility
+
+        query = (
+            db.query(
+                DrugConsumptionHistory.consumption_date,
+                func.sum(DrugConsumptionHistory.quantity_consumed).label("total_qty"),
+            )
+            .join(Facility, DrugConsumptionHistory.facility_id == Facility.id)
+            .filter(
+                Facility.district_id == district_id,
+                DrugConsumptionHistory.drug_id == drug_id,
+            )
+        )
+        if from_date is not None:
+            query = query.filter(DrugConsumptionHistory.consumption_date >= from_date)
+
+        rows = (
+            query.group_by(DrugConsumptionHistory.consumption_date)
+            .order_by(DrugConsumptionHistory.consumption_date.asc())
+            .all()
+        )
+        return [(r.consumption_date, int(r.total_qty)) for r in rows]
+
+    @staticmethod
     def get_district_consumption_history(
         db: Session, district_id: UUID, from_date: Optional[date] = None
     ) -> List[Tuple[date, int]]:

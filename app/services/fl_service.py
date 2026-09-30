@@ -39,6 +39,7 @@ from app.schemas.common import PaginationMeta
 from app.repositories.fl_repo import FlRepository
 from app.services.audit_service import AuditService
 from app.ml.model import RegionalDemandNet, ARCHITECTURE_HASH
+from app.ml.features import build_drug_index_map
 from app.ml.trainer import train_local_model
 from app.ml.aggregator import federated_average
 from app.ml.inference import forecast_from_serving_model
@@ -150,6 +151,9 @@ class FlService:
                         os.remove(tmp_path)
 
             # Step 4: Tier 1 - District local training
+            all_drugs = db.query(Drug).filter(Drug.is_active == True).order_by(Drug.id).all()
+            drug_index_map = build_drug_index_map([d.id for d in all_drugs])
+
             districts = db.query(District).all()
             district_state_dicts: Dict[UUID, Dict[str, torch.Tensor]] = {}
             district_sample_counts: Dict[UUID, int] = {}
@@ -159,20 +163,29 @@ class FlService:
 
             for dist in districts:
                 district_to_state[dist.id] = dist.state_id
-                consumption_series = FlRepository.get_district_consumption_history(db, dist.id, from_date=from_d)
-                
-                # If district has no history, generate zero-history baseline so node participates
-                if not consumption_series:
-                    consumption_series = [(from_d + timedelta(days=i), 0) for i in range(15)]
+
+                drug_series_list = []
+                for drug in all_drugs:
+                    series = FlRepository.get_district_drug_consumption_history(
+                        db, dist.id, drug.id, from_date=from_d
+                    )
+                    if len(series) >= 20:  # require minimum history per drug
+                        drug_series_list.append((drug.id, series))
+
+                if not drug_series_list:
+                    # Skip this district — insufficient history
+                    continue
 
                 state_dict, metrics = train_local_model(
                     base_state_dict=base_state_dict,
-                    consumption_series=consumption_series,
+                    drug_series_list=drug_series_list,
+                    drug_index_map=drug_index_map,
                     epochs=15,
                     batch_size=32,
                     lr=0.005,
                 )
-                samples = metrics.get("sample_count", len(consumption_series))
+
+                samples = metrics.get("sample_count", 0)
                 district_state_dicts[dist.id] = state_dict
                 district_sample_counts[dist.id] = samples
                 total_round_samples += samples
@@ -196,6 +209,16 @@ class FlService:
                 # Clear previous is_serving for this district
                 FlRepository.clear_serving_flags_for_node(db, FlNodeLevelEnum.DISTRICT, dist.id)
 
+                hyperparameters = {
+                    "epochs": 15,
+                    "batch_size": 32,
+                    "lr": 0.005,
+                    "n_features": 32,
+                    "norm_denom_map": {
+                        str(k): v for k, v in metrics.get("norm_denom_map", {}).items()
+                    },
+                }
+
                 dist_model = FlModel(
                     round_id=fl_round.id,
                     node_level=FlNodeLevelEnum.DISTRICT,
@@ -205,7 +228,7 @@ class FlService:
                     is_serving=True,
                     model_size_bytes=size_bytes,
                     architecture_hash=ARCHITECTURE_HASH,
-                    hyperparameters={"epochs": 15, "batch_size": 32, "lr": 0.005},
+                    hyperparameters=hyperparameters,
                     training_metrics=metrics,
                     sample_count=samples,
                 )
@@ -309,11 +332,9 @@ class FlService:
 
             # Step 7: Forecast generation per facility (7 days)
             facilities = db.query(Facility).all()
-            drugs = db.query(Drug).filter(Drug.is_active == True).all()
 
             for fac in facilities:
-                # Find serving model for this facility's district
-                dist_serving_model = (
+                district_model_record = (
                     db.query(FlModel)
                     .filter(
                         FlModel.node_level == FlNodeLevelEnum.DISTRICT,
@@ -322,17 +343,19 @@ class FlService:
                     )
                     .first()
                 )
-                model_to_use = dist_serving_model
+                if not district_model_record:
+                    # No serving model for this district — skip this facility
+                    continue
 
-                for drug in drugs:
+                for drug in all_drugs:
                     hist = FlRepository.get_consumption_history_for_facility_drug(
                         db=db,
                         facility_id=fac.id,
                         drug_id=drug.id,
                         from_date=today - timedelta(days=30),
                     )
-                    if not hist:
-                        # Construct baseline history so forecasting succeeds
+                    if len(hist) < 10:
+                        # Not enough history — use a fallback baseline
                         hist = [(today - timedelta(days=i), 5.0) for i in range(10, 0, -1)]
 
                     forecast_items = forecast_from_serving_model(
@@ -340,6 +363,8 @@ class FlService:
                         storage=storage,
                         node_level=FlNodeLevelEnum.DISTRICT,
                         node_id=fac.district_id,
+                        drug_id=drug.id,
+                        drug_index_map=drug_index_map,
                         recent_history=hist,
                         n_days=7,
                         start_date=today + timedelta(days=1),
@@ -349,7 +374,7 @@ class FlService:
                         db.add(
                             FlForecast(
                                 round_id=fl_round.id,
-                                model_id=model_to_use.id if model_to_use else fl_round.models[0].id,
+                                model_id=district_model_record.id,
                                 facility_id=fac.id,
                                 drug_id=drug.id,
                                 forecast_date=f_date,
