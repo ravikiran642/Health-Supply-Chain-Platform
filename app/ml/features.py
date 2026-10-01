@@ -123,7 +123,7 @@ def build_feature_tensors(
 
         for i in range(n_samples):
             X_drug[i] = timesteps[i : i + seq_len]
-            y_drug[i, 0] = quantities[i + seq_len]
+            y_drug[i, 0] = quantities[i + seq_len] / denom
 
         all_X.append(X_drug)
         all_y.append(y_drug)

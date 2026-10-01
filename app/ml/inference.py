@@ -122,7 +122,7 @@ def forecast_from_serving_model(
                 seq_len=7,
             )
             raw_output = model(input_tensor).item()
-            pred_qty = round(max(0.0, raw_output), 2)
+            pred_qty = round(max(0.0, raw_output * norm_denom), 2)
             forecasts.append((target_date, pred_qty))
             curr_history.append((target_date, pred_qty))
 

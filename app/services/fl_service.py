@@ -16,6 +16,7 @@ from fastapi import HTTPException, status
 from app.models.user import User
 from app.models.geography import State, District, Facility
 from app.models.drug import Drug
+from app.models.inventory import InventoryBatch
 from app.models.audit import AuditResultEnum
 from app.models.fl import (
     FlRound,
@@ -353,7 +354,15 @@ class FlService:
                     # No serving model for this district — skip this facility
                     continue
 
-                for drug in all_drugs:
+                facility_drug_ids = {
+                    row[0] for row in db.query(InventoryBatch.drug_id)
+                    .filter(InventoryBatch.facility_id == fac.id)
+                    .distinct()
+                    .all()
+                }
+                facility_drugs = [d for d in all_drugs if d.id in facility_drug_ids]
+
+                for drug in facility_drugs:
                     hist = FlRepository.get_consumption_history_for_facility_drug(
                         db=db,
                         facility_id=fac.id,
