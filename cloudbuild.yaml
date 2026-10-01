@@ -3,3 +3,6 @@ steps:
     args: ['build', '-t', 'asia-south1-docker.pkg.dev/$PROJECT_ID/backend-repo/api-service:latest', '-f', 'Dockerfile.api', '.']
 images:
   - 'asia-south1-docker.pkg.dev/$PROJECT_ID/backend-repo/api-service:latest'
+timeout: 1800s
+options:
+  machineType: 'E2_HIGHCPU_8'
