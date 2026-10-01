@@ -629,6 +629,7 @@ def seed_database(reset: bool = False, force: bool = False):
                     )
 
         # 9. Seed 90 Days of Synthetic Drug Consumption History
+        db.flush()
         log("Seeding 90 days of synthetic drug consumption history...")
         fac_drug_pairs = (
             db.query(InventoryBatch.facility_id, InventoryBatch.drug_id)
